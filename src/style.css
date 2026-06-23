@@ -1,0 +1,763 @@
+:root {
+  --bg: #0c1015;
+  --panel: rgba(18, 24, 32, 0.92);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text: #e8edf2;
+  --text-dim: #8a97a6;
+  --surplus: #2a9df4;
+  --deficit: #f45b5b;
+  --depot: #ffd140;
+  --accent: #4cc9b0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+#map {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Draggable depot marker (a maplibre Marker holding this element). */
+.depot-marker {
+  width: 18px;
+  height: 18px;
+  background: var(--depot);
+  border: 2px solid #141414;
+  border-radius: 4px;
+  transform: rotate(45deg);
+  cursor: grab;
+  box-shadow: 0 0 0 4px rgba(255, 209, 64, 0.25), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.depot-marker:active {
+  cursor: grabbing;
+}
+
+/* --- Control / metrics panel --- */
+#panel {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  width: 320px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 18px 18px 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
+  z-index: 10;
+}
+
+#panel header h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+
+#panel .sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.controls {
+  margin: 18px 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ctrl {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ctrl-label {
+  font-size: 13px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ctrl-label strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.ctrl-label small {
+  font-size: 11px;
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin: 2px 0 0;
+  line-height: 1.4;
+}
+
+/* Transport: play/pause + speed, one unified row */
+.transport {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.transport .speed-buttons {
+  flex: 1;
+}
+.play-toggle {
+  flex: 0 0 auto;
+  width: 36px;
+  font-size: 12px;
+  line-height: 1;
+  color: #06231d;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.play-toggle:hover {
+  background: #5fd9c0;
+  border-color: #5fd9c0;
+}
+.play-toggle.paused {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: var(--panel-border);
+  color: var(--text);
+}
+.play-toggle.paused:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Animation speed segmented control */
+.speed-buttons {
+  display: flex;
+  gap: 4px;
+}
+.speed-buttons button {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.speed-buttons button:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+.speed-buttons button.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06231d;
+  font-weight: 600;
+}
+
+.depot-chip {
+  color: var(--depot);
+  font-weight: 600;
+}
+
+/* --- Metrics --- */
+.metrics {
+  border-top: 1px solid var(--panel-border);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.metric .m-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.metric .m-value {
+  display: block;
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric.headline .m-value {
+  font-size: 28px;
+  color: var(--accent);
+}
+
+.metric-row {
+  display: flex;
+  gap: 18px;
+}
+
+.truck-breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+}
+
+.truck-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.truck-row {
+  cursor: pointer;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 5px;
+  transition: background 0.12s ease;
+}
+
+.truck-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.truck-row.focused {
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 2px 0 0 currentColor;
+}
+
+.truck-row .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.truck-row .t-name {
+  color: var(--text-dim);
+  width: 52px;
+}
+
+.truck-row .t-bar {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.truck-row .t-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+}
+
+.solve-status {
+  font-size: 11px;
+  color: var(--text-dim);
+  min-height: 14px;
+}
+
+.solve-status.warn {
+  color: #ffb44c;
+}
+
+/* --- Legend --- */
+.legend {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--panel-border);
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.legend .dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+.dot.surplus {
+  background: var(--surplus);
+}
+.dot.deficit {
+  background: var(--deficit);
+}
+
+/* --- Right-side analytics column --- */
+#analytics {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  width: 300px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  padding: 16px 16px 14px;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
+  z-index: 10;
+}
+
+.a-head {
+  position: relative;
+}
+
+/* Deselect ✕ — top-right of the selected-state header; the way back to the ranking. */
+.a-deselect {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.a-deselect:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+.a-eyebrow {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding-right: 30px; /* clear the ✕ */
+}
+
+.a-title {
+  margin: 4px 0 8px;
+  font-size: 17px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  padding-right: 30px; /* keep long names clear of the ✕ */
+}
+
+.a-demand {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.a-demand.surplus {
+  color: var(--surplus);
+  background: rgba(42, 157, 244, 0.14);
+}
+.a-demand.deficit {
+  color: var(--deficit);
+  background: rgba(244, 91, 91, 0.14);
+}
+.a-demand.neutral {
+  color: var(--text-dim);
+  background: rgba(150, 150, 150, 0.14);
+}
+
+.a-sub {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.a-truck {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 9px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.a-truck .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.a-block {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.a-h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.a-chart {
+  width: 100%;
+}
+
+.a-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.a-chart .axis-line {
+  stroke: rgba(255, 255, 255, 0.2);
+  stroke-width: 1;
+}
+.a-chart .hour-label {
+  fill: var(--text-dim);
+  font-size: 8px;
+}
+.a-chart .chart-caption {
+  fill: var(--text-dim);
+  font-size: 9px;
+}
+
+/* Load profile chart (focused truck) */
+.a-load-chart {
+  width: 100%;
+}
+.a-load-chart svg {
+  display: block;
+  width: 100%;
+  height: 110px;
+  touch-action: none; /* let the scrubber own horizontal drags */
+  cursor: ew-resize;
+}
+.a-load-chart .cap-line {
+  stroke: rgba(255, 180, 76, 0.7);
+  stroke-width: 1;
+  stroke-dasharray: 3 2;
+}
+.a-load-chart .axis-line {
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1;
+}
+.a-load-chart .chart-caption {
+  fill: var(--text-dim);
+  font-size: 9px;
+}
+.a-load-chart .hour-label {
+  fill: var(--text-dim);
+  font-size: 8px;
+}
+.a-load-chart .load-bar {
+  transition: opacity 0.08s ease;
+}
+/* At-capacity bars: amber outline so a full truck pops out from merely-tall bars,
+   tying them to the amber "full =" ceiling line and the cap markers above. */
+.a-load-chart .load-bar.at-cap {
+  stroke: var(--depot);
+  stroke-width: 0.9;
+  paint-order: stroke;
+}
+.a-load-chart .cap-mark {
+  fill: var(--depot);
+}
+/* Selected wins over at-cap: a white outline marks the inspected stop. */
+.a-load-chart .load-bar.selected {
+  stroke: #fff;
+  stroke-width: 1;
+  paint-order: stroke;
+}
+.a-load-chart .load-playhead {
+  fill: rgba(255, 255, 255, 0.18);
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 0.6;
+}
+
+.swatch.lg {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  margin-right: 7px;
+  vertical-align: baseline;
+}
+
+/* Top-imbalance ranking */
+.a-rank {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.rank-row {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 2px 4px;
+  margin: 0 -4px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+.rank-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.rank-row.selected {
+  background: rgba(255, 255, 255, 0.12);
+}
+.rank-row .rank-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+.rank-row.pos .rank-val {
+  color: var(--surplus);
+}
+.rank-row.neg .rank-val {
+  color: var(--deficit);
+}
+.rank-row .rank-track {
+  position: relative;
+  height: 21px;
+  display: flex;
+  align-items: center;
+}
+.rank-row .rank-bar {
+  height: 17px;
+  border-radius: 3px;
+  min-width: 2px;
+}
+.rank-row.pos .rank-bar {
+  background: var(--surplus);
+}
+.rank-row.neg .rank-bar {
+  background: var(--deficit);
+}
+.rank-row .rank-name {
+  position: absolute;
+  left: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: calc(100% - 10px);
+  color: var(--text);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+}
+
+.a-hint {
+  margin: 14px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* --- Loading overlay --- */
+#loading {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--bg);
+  transition: opacity 0.5s ease;
+}
+
+#loading.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#loading p {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- Info layer: first-load intro card + recallable About panel --- */
+.info-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 9, 13, 0.55);
+  backdrop-filter: blur(2px);
+}
+.info-overlay.hidden {
+  display: none;
+}
+
+.info-card {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  color: var(--text);
+  padding: 26px 30px;
+}
+.intro-card {
+  width: 440px;
+  max-width: 92vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.about-card {
+  width: 560px;
+  max-width: 92vw;
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.info-title {
+  margin: 0 0 14px;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+}
+.about-card .info-title {
+  margin-bottom: 12px;
+}
+
+.info-card p {
+  margin: 0 0 12px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: #cdd6e0;
+}
+.about-card p {
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.info-card p:last-of-type {
+  margin-bottom: 0;
+}
+.info-card strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.info-card .c-surplus {
+  color: var(--surplus);
+}
+.info-card .c-deficit {
+  color: var(--deficit);
+}
+
+.info-btn {
+  margin-top: 18px;
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #06231d;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.info-btn:hover {
+  background: #5fd9c0;
+}
+
+.info-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.info-close:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+}
+
+/* Persistent help button (bottom-left, clear of the panels on typical windows).
+   Filled accent + soft glow ring so it's easy to spot on the dark map. */
+.help-btn {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 11;
+  width: 40px;
+  height: 40px;
+  font-size: 21px;
+  font-weight: 700;
+  color: #06231d;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5), 0 0 0 4px rgba(76, 201, 176, 0.22);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+}
+.help-btn:hover {
+  background: #5fd9c0;
+  transform: scale(1.08);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55), 0 0 0 5px rgba(76, 201, 176, 0.32);
+}
