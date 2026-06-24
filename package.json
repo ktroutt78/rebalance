@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.29.0",
+    "@vercel/analytics": "^2.0.1",
     "deck.gl": "^9.3.0",
     "maplibre-gl": "^5.0.0"
   },
