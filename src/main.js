@@ -4,6 +4,7 @@
 // (src/selection.js) is the spine: it drives map focus, the legend, and the
 // right-side analytics panel together.
 
+import { inject } from '@vercel/analytics';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapboxOverlay } from '@deck.gl/mapbox';
@@ -436,6 +437,9 @@ function exposeDebugHooks() {
     uiState: () => ({ scrubbing: state.scrubbing, hoveredStation: state.hoveredStation }),
   };
 }
+
+// Initialize Vercel Analytics
+inject();
 
 boot().catch((err) => {
   console.error(err);
