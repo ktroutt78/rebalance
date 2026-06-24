@@ -144,13 +144,13 @@ async function boot() {
 
   exposeDebugHooks();
 
-  // Vercel Web Analytics — injected LAST. Its insights script instruments the page
-  // in a way that hangs DuckDB-Wasm's db.instantiate() if it loads during boot, so
-  // we defer it until DuckDB is done (it's only used at boot; re-solves reuse the
-  // existing worker). requestIdleCallback keeps it off the critical path.
-  const startAnalytics = () => injectAnalytics();
-  if ('requestIdleCallback' in window) requestIdleCallback(startAnalytics);
-  else setTimeout(startAnalytics, 0);
+  // Vercel Web Analytics — injected LAST, here at the end of boot. Its insights
+  // script instruments the page in a way that hangs DuckDB-Wasm's db.instantiate()
+  // if it loads during boot; by this point DuckDB is fully initialized (it's only
+  // used at boot — re-solves reuse the existing worker), so it's safe. We call it
+  // directly rather than via requestIdleCallback, which the continuous rAF
+  // animation loop would starve, delaying analytics indefinitely.
+  injectAnalytics();
 }
 
 let resolveTimer = null;
