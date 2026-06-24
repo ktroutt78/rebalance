@@ -105,10 +105,9 @@
       </div>
     </div>
 
+    <!-- Vercel Web Analytics is injected from main.js AFTER the app finishes booting.
+         Loading the insights script during boot hangs DuckDB-Wasm's db.instantiate(),
+         so it must run only once the map + solver are up. -->
     <script type="module" src="./src/main.js"></script>
-    <script type="module">
-      import { inject } from '@vercel/analytics';
-      inject();
-    </script>
   </body>
 </html>

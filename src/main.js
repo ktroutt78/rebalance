@@ -40,6 +40,7 @@ import {
 } from './selection.js';
 import { renderPanel, updateLoadPlayhead } from './panel.js';
 import { initInfo } from './info.js';
+import { inject as injectAnalytics } from '@vercel/analytics';
 
 const state = {
   stations: [],
@@ -142,6 +143,14 @@ async function boot() {
   initInfo();
 
   exposeDebugHooks();
+
+  // Vercel Web Analytics — injected LAST. Its insights script instruments the page
+  // in a way that hangs DuckDB-Wasm's db.instantiate() if it loads during boot, so
+  // we defer it until DuckDB is done (it's only used at boot; re-solves reuse the
+  // existing worker). requestIdleCallback keeps it off the critical path.
+  const startAnalytics = () => injectAnalytics();
+  if ('requestIdleCallback' in window) requestIdleCallback(startAnalytics);
+  else setTimeout(startAnalytics, 0);
 }
 
 let resolveTimer = null;
