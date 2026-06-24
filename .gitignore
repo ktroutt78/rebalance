@@ -13,3 +13,4 @@ test/*.png
 # Raw Citi Bike trip files downloaded by data/aggregate_demand.py (~1.2 GB) —
 # large, regenerable, NEVER committed. The app ships only public/stations_demand.parquet.
 data/.cache/
+.vercel
