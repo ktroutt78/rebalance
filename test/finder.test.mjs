@@ -153,23 +153,46 @@ await page.mouse.click(30, 450);
 await page.waitForTimeout(120);
 check(!(await shown('finder-overlay')), 'clicking outside dismisses overlay');
 
-// Re-open and click the recommended size's column to apply that mix.
+// Re-open: the recommendation is PRE-SELECTED in the pick bar (confirmation
+// before anything touches the map), clicking a column re-previews, and only
+// the explicit apply button closes + applies.
 const applySize = expectedRec ? expectedRec.size : 6;
 await page.evaluate(() => document.getElementById('finder-open').click());
 await page.waitForFunction(() => !!document.querySelector('.finder-svg'), { timeout: 60000 });
 await page.waitForTimeout(200);
+const prePick = await page.evaluate(() => document.querySelector('#finder-pick strong')?.textContent || '');
+check(
+  expectedRec == null || prePick.startsWith(`${expectedRec.size} vehicle`),
+  'pick bar opens pre-selected on the recommendation',
+  prePick
+);
+// Click a DIFFERENT column → overlay stays open, pick bar previews that size.
+const otherSize = applySize === 8 ? 6 : 8;
 await page.evaluate((k) => {
-  const hit = document.querySelector(`.finder-hit[data-k="${k}"]`);
-  hit.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  document.querySelector(`.finder-hit[data-k="${k}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+}, otherSize);
+await page.waitForTimeout(150);
+check(await shown('finder-overlay'), 'clicking a column previews without closing the overlay');
+const otherPick = await page.evaluate(() => ({
+  text: document.querySelector('#finder-pick strong')?.textContent || '',
+  selectedCol: document.querySelector('.finder-hit.selected')?.dataset.k,
+}));
+check(otherPick.text.startsWith(`${otherSize} vehicle`), 'pick bar describes the clicked size', otherPick.text);
+check(otherPick.selectedCol === String(otherSize), 'clicked column is marked selected', otherPick.selectedCol);
+// Back to the recommended size, then confirm via the apply button.
+await page.evaluate((k) => {
+  document.querySelector(`.finder-hit[data-k="${k}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }, applySize);
+await page.waitForTimeout(150);
+await page.evaluate(() => document.getElementById('finder-apply').click());
 await page.waitForTimeout(400);
-check(!(await shown('finder-overlay')), 'overlay closes after applying a point');
+check(!(await shown('finder-overlay')), 'apply button closes the overlay');
 const applied = await page.evaluate(() => ({
   total: Number(document.getElementById('fleet-total').textContent),
   fleet: window.__rebalance.fleet(),
 }));
 const appliedTotal = Object.values(applied.fleet).reduce((s, n) => s + n, 0);
-check(applied.total === applySize && appliedTotal === applySize, 'clicked column applied its best mix to the steppers', JSON.stringify(applied.fleet));
+check(applied.total === applySize && appliedTotal === applySize, 'apply put the selected mix on the steppers', JSON.stringify(applied.fleet));
 
 // Let the re-solve + camera settle, then capture the map.
 await page.waitForTimeout(1400);

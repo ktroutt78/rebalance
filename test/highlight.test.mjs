@@ -32,6 +32,8 @@ const readState = () =>
     focusedTruck: window.__rebalance.getSelection().truckIdx,
   }));
 
+const initialZoom = await page.evaluate(() => window.__rebalance.camera().zoom);
+
 // 1) Click the trailer type name → spotlight all trailers.
 await page.evaluate(() => document.querySelector('.fleet-row[data-type="trailer"] .fleet-name').click());
 await page.waitForTimeout(150);
@@ -46,11 +48,32 @@ check(
 check(s.rows.length === 1 && s.rows[0] === 'trailer', 'fleet row shows the highlighted state', JSON.stringify(s.rows));
 check(s.pressed === 'true', 'type name is aria-pressed while active');
 
-// 2) Second click toggles the spotlight off.
+// Camera zooms in to fit the trailer routes (they cluster near the depot).
+const zoomedIn = await page
+  .waitForFunction(
+    (z0) => { const c = window.__rebalance.camera(); return !c.moving && c.zoom > z0 + 0.2; },
+    initialZoom,
+    { timeout: 8000 }
+  )
+  .then(() => true)
+  .catch(() => false);
+const spotZoom = await page.evaluate(() => window.__rebalance.camera().zoom);
+check(zoomedIn, 'spotlight zooms to fit the type’s routes', `${initialZoom.toFixed(2)} → ${spotZoom.toFixed(2)}`);
+
+// 2) Second click toggles the spotlight off (and the camera flies back out).
 await page.evaluate(() => document.querySelector('.fleet-row[data-type="trailer"] .fleet-name').click());
 await page.waitForTimeout(150);
 s = await readState();
 check(s.type === null && s.rows.length === 0, 'second click toggles the spotlight off');
+const zoomedOut = await page
+  .waitForFunction(
+    (z0) => { const c = window.__rebalance.camera(); return !c.moving && Math.abs(c.zoom - z0) < 0.05; },
+    initialZoom,
+    { timeout: 8000 }
+  )
+  .then(() => true)
+  .catch(() => false);
+check(zoomedOut, 'clearing the spotlight returns the camera to the default view');
 
 // 3) Spotlight yields to a real selection (focusing a vehicle clears it).
 await page.evaluate(() => document.querySelector('.fleet-row[data-type="truck"] .fleet-name').click());

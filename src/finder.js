@@ -181,20 +181,52 @@ export function initFinder({ solve, getContext, onApply }) {
         <span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="#ffb44c" stroke-width="2.4" stroke-dasharray="4 3"/></svg> longest route</span>
         ${recommended ? `<span class="finder-legend-rec">◎ recommended (${recommended.size})</span>` : ''}
       </div>
+      <div class="finder-pick" id="finder-pick"></div>
       <p class="finder-caption">${captionFor(results.length, points, recommended)}</p>
     `;
 
-    // Clicking a point (anywhere in its column) applies that size's best mix.
+    // Clicking a column SELECTS that size's best mix — the pick bar spells out
+    // exactly what it is (mix, dollars, coverage, shift fit), and only the
+    // explicit apply button puts it on the map. The recommendation starts
+    // selected so there's always a concrete plan on offer.
     const svg = body.querySelector('.finder-svg');
+    const pickEl = body.querySelector('#finder-pick');
+    let selectedSize = recommended ? recommended.size : points[points.length - 1]?.size ?? null;
+
+    const renderPick = () => {
+      const pick = selectedSize != null ? bestAt.get(selectedSize) : null;
+      svg?.querySelectorAll('.finder-hit').forEach((h) => {
+        h.classList.toggle('selected', Number(h.dataset.k) === selectedSize);
+      });
+      if (!pick) {
+        pickEl.innerHTML = '';
+        return;
+      }
+      const workable = pick.unserved === 0 && pick.fits === 0;
+      const coverage = pick.unserved === 0 ? 'full coverage' : `${pick.unserved} stations unserved`;
+      const shiftNote = `longest route ${pick.maxHours.toFixed(1)} h${pick.fits === 0 ? '' : ` — over the ${SHIFT.hours} h shift`}`;
+      pickEl.innerHTML = `
+        <div class="finder-pick-info${workable ? '' : ' warn'}">
+          <strong>${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${mixWords(pick.counts)}</strong>
+          <span class="finder-pick-stats">${formatMoney(pick.cost)} · ${coverage} · ${shiftNote}</span>
+        </div>
+        <button type="button" id="finder-apply" class="info-btn finder-apply-btn">Put on the map</button>
+      `;
+      pickEl.querySelector('#finder-apply')?.addEventListener('click', () => {
+        close();
+        onApply({ ...pick.counts });
+      });
+    };
+
     svg?.addEventListener('click', (e) => {
       const hit = e.target.closest('.finder-hit');
       if (!hit) return;
       const size = Number(hit.dataset.k);
-      const pick = bestAt.get(size);
-      if (!pick) return;
-      close();
-      onApply({ ...pick.counts });
+      if (!bestAt.has(size)) return;
+      selectedSize = size;
+      renderPick();
     });
+    renderPick();
   }
 
   function captionFor(mixCount, points, recommended) {
@@ -206,7 +238,7 @@ export function initFinder({ solve, getContext, onApply }) {
       cap +
       `Small fleets are cheap on paper but their routes blow past the shift line; ${mixWords(recommended.counts)} (${formatMoney(
         recommended.cost
-      )}) is the cheapest plan that actually gets the night's work done. Click a column to put that fleet on the map.`
+      )}) is the cheapest plan that actually gets the night's work done. Click a column to preview that size's best mix.`
     );
   }
 

@@ -138,22 +138,35 @@ export function stationLayer(stations, focus = NO_FOCUS) {
   const unserved = focus.unservedStations || EMPTY_SET;
   const active = activeSetOf(focus);
   const hasFocus = active != null;
-  // A TYPE spotlight can cover most of the map — boosting its stations to full
-  // alpha turns midtown into a blob that buries the routes. So: single-vehicle
-  // focus BOOSTS that route's stops; a type spotlight leaves member stations at
-  // their normal look and only GHOSTS the rest — the brightened, thickened
-  // routes carry the emphasis.
+  // Whether a spotlight's stops get the full-alpha boost is ADAPTIVE: a small
+  // spotlight (one van, two trailers) boosts like single-vehicle focus so its
+  // stops pop; a sweeping one (box trucks ≈ most of Manhattan) would turn
+  // midtown into a blob that buries the routes, so its stations keep their
+  // normal look and the brightened routes carry the emphasis instead.
   const isTypeSpotlight = focus.typeHighlight != null;
   const isFocusedStop = (s) => hasFocus && active.has(stationToTruck.get(s.idx));
   const isUnserved = (s) => unserved.has(s.idx);
   const trig = focusKeyOf(focus);
+
+  let boostStops = hasFocus && !isTypeSpotlight; // single focus always boosts
+  if (hasFocus && isTypeSpotlight) {
+    let members = 0;
+    let served = 0;
+    for (const s of stations) {
+      const t = stationToTruck.get(s.idx);
+      if (t == null) continue;
+      served++;
+      if (active.has(t)) members++;
+    }
+    boostStops = served > 0 && members / served <= 0.5; // covers < half → boost
+  }
 
   const radiusOf = (s) => {
     let r = MARKER.base + MARKER.scale * Math.pow(Math.abs(s.demand), MARKER.exp);
     if (s.idx === selectedStation) r *= MARKER.selectGrow;
     else if (s.idx === hoveredStation) r *= MARKER.focusGrow;
     else if (isUnserved(s)) r *= MARKER.focusGrow; // missed stations stay noticeable
-    else if (isFocusedStop(s) && !isTypeSpotlight) r *= MARKER.focusGrow;
+    else if (isFocusedStop(s) && boostStops) r *= MARKER.focusGrow;
     return r;
   };
 
@@ -161,11 +174,7 @@ export function stationLayer(stations, focus = NO_FOCUS) {
     const col = baseDemandColor(s);
     let a = MARKER.fillAlpha;
     if (hasFocus) {
-      a = isFocusedStop(s)
-        ? isTypeSpotlight
-          ? MARKER.fillAlpha // spotlight members keep the normal look
-          : MARKER.focusAlpha // a single focused route's stops boost
-        : MARKER.ghostAlpha;
+      a = isFocusedStop(s) ? (boostStops ? MARKER.focusAlpha : MARKER.fillAlpha) : MARKER.ghostAlpha;
     }
     // Unserved: hollow/muted fill so it reads as an outlined "miss", but never
     // fully hidden by focus ghosting — these are the stations the story is about.
@@ -182,7 +191,7 @@ export function stationLayer(stations, focus = NO_FOCUS) {
     if (isUnserved(s)) return [...COLOR.unserved, 240];
     if (hasFocus) {
       if (!isFocusedStop(s)) return [255, 255, 255, 18];
-      return [255, 255, 255, isTypeSpotlight ? 55 : 150];
+      return [255, 255, 255, boostStops ? 150 : 55];
     }
     return [255, 255, 255, 55];
   };

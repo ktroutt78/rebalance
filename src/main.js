@@ -63,6 +63,7 @@ const state = {
   stationToTruck: new Map(),
   unservedIdxs: new Set(), // stations the current solution left unserved (map treatment)
   framedTruck: null, // truck the camera is currently framed on (auto-zoom-to-fit)
+  spotlightFramed: false, // camera currently fit to a type spotlight's routes
   solving: false,
   pendingResolve: false,
 };
@@ -191,6 +192,32 @@ function setTypeHighlight(typeId) {
   if (next) clearSelection();
   state.highlightType = next;
   setFleetHighlight(next);
+  updateSpotlightCamera();
+}
+
+// Zoom to fit every route of the spotlighted type (trailers cluster near the
+// depot — the camera should say so); clearing the spotlight flies back out.
+function updateSpotlightCamera() {
+  const set = highlightedTruckSet();
+  if (set && state.routesByTruck) {
+    const b = new maplibregl.LngLatBounds();
+    let any = false;
+    for (const t of set) {
+      const route = state.routesByTruck.get(t);
+      if (!route || route.stationIdxs.length === 0) continue;
+      for (const w of route.waypoints) b.extend([w.lng, w.lat]);
+      any = true;
+    }
+    if (any) {
+      map.fitBounds(b, { padding: framePadding(), maxZoom: CAMERA.maxZoom, duration: CAMERA.duration });
+      state.spotlightFramed = true;
+      return;
+    }
+  }
+  if (state.spotlightFramed) {
+    state.spotlightFramed = false;
+    flyToDefault();
+  }
 }
 
 // Solve with the current depot + fleet. Coalesces overlapping requests.
@@ -226,9 +253,11 @@ async function resolve() {
 
 // Single subscriber: keep the legend + panel in lockstep with the selection.
 function onSelectionChange(sel) {
-  // A real selection takes over from the type spotlight.
+  // A real selection takes over from the type spotlight. The camera hands off
+  // too: the new focus frames itself via updateCamera below.
   if ((sel.truckIdx != null || sel.stationIdx != null) && state.highlightType) {
     state.highlightType = null;
+    state.spotlightFramed = false;
     setFleetHighlight(null);
   }
   highlightFocusedTruck(sel.truckIdx);
@@ -340,10 +369,7 @@ function onDeckClick(info) {
     /* depot is a separate marker; ignore */
   } else {
     clearSelection();
-    if (state.highlightType) {
-      state.highlightType = null;
-      setFleetHighlight(null);
-    }
+    if (state.highlightType) setTypeHighlight(state.highlightType); // toggles off + camera out
   }
 }
 
