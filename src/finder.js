@@ -97,9 +97,24 @@ export function initFinder({ solve, getContext, onApply }) {
       const counts = mixes[i];
       const fleet = buildFleet(counts);
       const r = await solve({ depot, fleet: fleet.map((t) => t.capacity) });
+      // What actually ROLLS is the plan's real fleet — the solver sometimes
+      // parks a vehicle whose cluster emptied, and a spare that parks costs
+      // nothing (yet still shaped the route split). Plans are judged and
+      // charted by their rolling composition; `counts` stays the recipe that
+      // reproduces the solve.
+      const rolling = {};
+      let rollingSize = 0;
+      for (const t of r.metrics.perTruck) {
+        if (t.stops === 0) continue;
+        const id = fleet[t.truckIndex].id;
+        rolling[id] = (rolling[id] || 0) + 1;
+        rollingSize++;
+      }
       results.push({
         counts,
         size: sizeOf(counts),
+        rolling,
+        rollingSize,
         cost: fleetCost(fleet, r.metrics.perTruck), // overtime included
         unserved: r.metrics.unsatisfied,
         maxHours: planMaxHours(fleet, r.metrics.perTruck),
@@ -121,14 +136,15 @@ export function initFinder({ solve, getContext, onApply }) {
   }
 
   function renderResults(results) {
-    // Best plan at each fleet size (coverage first, then cost) — one chart
-    // point per size, so the x-axis stays readable while every mix competes.
+    // Best plan at each ROLLING size (coverage first, then cost) — the x-axis
+    // answers "how many vehicles do I actually need on the road?", which is
+    // the question. A mix that parks a spare competes at its rolling count.
     const bestAt = new Map();
     for (const r of results) {
-      const cur = bestAt.get(r.size);
-      if (!cur || better(r, cur) < 0) bestAt.set(r.size, r);
+      const cur = bestAt.get(r.rollingSize);
+      if (!cur || better(r, cur) < 0) bestAt.set(r.rollingSize, r);
     }
-    const points = [...bestAt.values()].sort((a, b) => a.size - b.size);
+    const points = [...bestAt.values()].sort((a, b) => a.rollingSize - b.rollingSize);
 
     // The recommendation: cheapest plan that serves every station, with
     // overtime already priced into the cost.
@@ -136,8 +152,9 @@ export function initFinder({ solve, getContext, onApply }) {
     const recommended = covered.length ? covered.reduce((a, b) => (better(a, b) <= 0 ? a : b)) : null;
 
     // The box-trucks-only comparison lives in the caption (a fixed fact, not a
-    // stat card; the second card tracks whatever column is selected).
-    const trucksOnly = covered.filter((r) => r.size === (r.counts.truck || 0));
+    // stat card; the second card tracks whatever column is selected). Judged
+    // on what rolls: a plan whose vans/trailers all park IS trucks-only.
+    const trucksOnly = covered.filter((r) => r.rollingSize === (r.rolling.truck || 0));
     const bestTrucksOnly = trucksOnly.length
       ? trucksOnly.reduce((a, b) => (better(a, b) <= 0 ? a : b))
       : null;
@@ -159,12 +176,12 @@ export function initFinder({ solve, getContext, onApply }) {
       </div>
       <div class="finder-chart" id="finder-chart">
         ${finderChartSVG(
-          points.map((p) => ({ x: p.size, left: p.cost, right: p.maxHours })),
+          points.map((p) => ({ x: p.rollingSize, left: p.cost, right: p.maxHours })),
           {
-            recommendedX: recommended ? recommended.size : null,
+            recommendedX: recommended ? recommended.rollingSize : null,
             leftTitle: 'cost of best mix ($)',
             rightTitle: 'longest route (h)',
-            xTitle: 'fleet size (best mix at each)',
+            xTitle: 'vehicles on the road (best plan at each)',
             fmtLeft: (v) => `$${Math.round(v)}`,
             rightGuide: { value: SHIFT.hours, label: `${SHIFT.hours} h shift` },
             rightMaxHint: 24, // a full day of hours; the worst route is ~23 h
@@ -174,7 +191,7 @@ export function initFinder({ solve, getContext, onApply }) {
       <div class="finder-legend">
         <span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="#4cc9b0" stroke-width="2.4"/></svg> cost of best mix</span>
         <span><svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="#ffb44c" stroke-width="2.4" stroke-dasharray="4 3"/></svg> longest route</span>
-        ${recommended ? `<span class="finder-legend-rec">◎ recommended (${recommended.size})</span>` : ''}
+        ${recommended ? `<span class="finder-legend-rec">◎ recommended (${recommended.rollingSize})</span>` : ''}
       </div>
       <div class="finder-pick" id="finder-pick"></div>
       <p class="finder-caption">${captionFor(results.length, recommended, bestTrucksOnly)}</p>
@@ -190,49 +207,60 @@ export function initFinder({ solve, getContext, onApply }) {
     const selLabel = body.querySelector('#finder-sel-label');
     const selValue = body.querySelector('#finder-sel-value');
     const hrsValue = body.querySelector('#finder-hrs-value');
-    let selectedSize = recommended ? recommended.size : points[points.length - 1]?.size ?? null;
+    let selectedSize = recommended ? recommended.rollingSize : points[points.length - 1]?.rollingSize ?? null;
 
     // Justify the winner against its same-size rivals: every mix of that size
     // was actually solved, so name the runner-up and the cheaper mix that got
     // rejected (and the reason it failed).
     const whyPick = (pick) => {
-      const rivals = results.filter((r) => r.size === pick.size && r !== pick);
+      const rivals = results.filter((r) => r.rollingSize === pick.rollingSize && r !== pick);
       const n = rivals.length + 1;
       if (pick.unserved > 0) {
-        return `All ${n} possible ${pick.size}-vehicle mixes were solved; none serves every station, and this one strands the fewest.`;
+        return `Of the ${n} solved plans that roll ${pick.rollingSize} vehicles, none serves every station; this one strands the fewest.`;
       }
       const parts = [
-        `All ${n} possible ${pick.size}-vehicle mixes were solved; this is the cheapest that serves every station, overtime included.`,
+        `Of the ${n} solved plans that roll ${pick.rollingSize} vehicles, this is the cheapest that serves every station, overtime included.`,
       ];
       const nextBest = rivals.filter((r) => r.unserved === 0).sort((a, b) => a.cost - b.cost)[0];
-      if (nextBest) parts.push(`Next best: ${mixWords(nextBest.counts)} at ${formatMoney(nextBest.cost)}.`);
+      if (nextBest) parts.push(`Next best: ${mixWords(nextBest.rolling)} at ${formatMoney(nextBest.cost)}.`);
+
+      // Optional context, capped at TWO sentences so the pick bar (and the
+      // modal it sizes) never overgrows. Later entries outrank earlier ones.
+      const extras = [];
       // Anything cheaper than a full-coverage winner must be stranding
       // stations (overtime is already in the price).
       const cheaper = rivals
         .filter((r) => r.unserved > 0 && r.cost < pick.cost - 0.5)
         .sort((a, b) => a.cost - b.cost)[0];
       if (cheaper) {
-        parts.push(
-          `${mixWords(cheaper.counts)} would save ${formatMoney(pick.cost - cheaper.cost)} but leaves ${
+        extras.push(
+          `${mixWords(cheaper.rolling)} would save ${formatMoney(pick.cost - cheaper.cost)} but leaves ${
             cheaper.unserved
           } station${cheaper.unserved === 1 ? '' : 's'} unserved.`
         );
       }
       // The price doesn't know that every vehicle is one more thing to own,
-      // maintain, and staff — so when a leaner fleet comes close, say so and
+      // maintain, and staff — so when a leaner plan comes close, say so and
       // let the viewer weigh it.
       if (recommended && pick === recommended) {
         const lean = covered
-          .filter((r) => r.size < pick.size && r.cost - pick.cost < pick.cost * 0.1)
-          .sort((a, b) => a.size - b.size || a.cost - b.cost)[0];
+          .filter((r) => r.rollingSize < pick.rollingSize && r.cost - pick.cost < pick.cost * 0.1)
+          .sort((a, b) => a.rollingSize - b.rollingSize || a.cost - b.cost)[0];
         if (lean) {
-          parts.push(
-            `Prefer fewer vehicles to own and maintain? ${mixWords(lean.counts)} covers everything with ${
-              lean.size
-            } for ${formatMoney(lean.cost - pick.cost)} more.`
+          extras.push(
+            `Prefer fewer vehicles to own and maintain? ${mixWords(lean.rolling)} covers everything with ${
+              lean.rollingSize
+            } on the road for ${formatMoney(lean.cost - pick.cost)} more.`
           );
         }
       }
+      // A parked spare is a solver quirk worth explaining right where it shows.
+      if (pick.idle > 0) {
+        extras.push(
+          `Applying sets the fleet to ${mixWords(pick.counts)}; the spare parks at the depot but shapes a better split.`
+        );
+      }
+      parts.push(...extras.slice(-2));
       return parts.join(' ');
     };
 
@@ -247,25 +275,24 @@ export function initFinder({ solve, getContext, onApply }) {
       }
       const coveredPick = pick.unserved === 0;
       const coverage = coveredPick ? 'full coverage' : `${pick.unserved} stations unserved`;
-      // Say when the solver parks vehicles — a "5-vehicle" plan that rolls 4
-      // must announce it, or the map looks like it lost one.
+      // Say when the plan keeps a spare — the headline counts what rolls, so
+      // the stats must account for the rest of the applied fleet.
       const shiftNote =
         `longest route ${pick.maxHours.toFixed(1)} h` +
         (pick.otHours > 0 ? ` · ${pick.otHours.toFixed(1)} h overtime` : '') +
-        (pick.idle > 0 ? ` · ${pick.idle} parked at the depot` : '');
+        (pick.idle > 0 ? ` · ${pick.idle} spare parked at the depot` : '');
 
       // Cards two and three track the selection for at-a-glance comparison
       // against the recommendation in card one — pure label + number; the
       // pick bar below the chart carries every detail. Colors follow the
       // chart's series: teal means dollars, orange means hours.
-      selLabel.textContent =
-        recommended && pick.size === recommended.size ? 'Selected fleet (recommended)' : 'Selected fleet';
+      selLabel.textContent = recommended && pick === recommended ? 'Selected fleet (recommended)' : 'Selected fleet';
       selValue.textContent = formatMoney(pick.cost);
       hrsValue.textContent = `${pick.maxHours.toFixed(1)} h`;
 
       pickEl.innerHTML = `
         <div class="finder-pick-info${coveredPick ? '' : ' warn'}">
-          <strong>${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${mixWords(pick.counts)}</strong>
+          <strong>${pick.rollingSize} vehicle${pick.rollingSize === 1 ? '' : 's'} on the road · ${mixWords(pick.rolling)}</strong>
           <span class="finder-pick-stats">${formatMoney(pick.cost)} · ${coverage} · ${shiftNote}</span>
           <span class="finder-pick-why">${whyPick(pick)}</span>
         </div>
@@ -295,9 +322,9 @@ export function initFinder({ solve, getContext, onApply }) {
   }
 
   function captionFor(mixCount, recommended, bestTrucksOnly) {
-    const cap = `Every point is the best of ${mixCount} solved fleet mixes at that size (up to 4 of each type, ${FLEET_MAX_TOTAL} vehicles total), judged by coverage first, then total cost. Hours past the ${SHIFT.hours}-hour overnight shift bill as overtime, so a small fleet driving all night prices itself out. `;
+    const cap = `Every point is the cheapest of ${mixCount} solved mixes (up to 4 of each type, ${FLEET_MAX_TOTAL} total), grouped by how many vehicles actually roll; a spare that parks costs nothing but can still shape a better split. Hours past the ${SHIFT.hours}-hour overnight shift bill as overtime, so a small fleet driving all night prices itself out. `;
     if (!recommended) {
-      return cap + `Nothing up to ${FLEET_MAX_TOTAL} vehicles serves every station; the dashed line shows each size's longest route.`;
+      return cap + `Nothing serves every station; the dashed line shows each plan's longest route.`;
     }
     const trucksNote = bestTrucksOnly
       ? `The cheapest box-trucks-only plan runs ${formatMoney(bestTrucksOnly.cost)}.`

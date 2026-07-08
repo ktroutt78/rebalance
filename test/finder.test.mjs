@@ -69,16 +69,22 @@ const truth = await page.evaluate(async ({ TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, M
     m.forEach((n, i) => { for (let k = 0; k < n; k++) fleetTypes.push(TYPES[i]); });
     const res = await window.__rebalance.solveOnce({ fleet: fleetTypes.map((t) => t.cap) });
     let cost = 0, maxH = 0, otH = 0, idle = 0;
+    const roll = { truck: 0, van: 0, trailer: 0 };
     for (const t of res.metrics.perTruck) {
       if (t.stops === 0) { idle++; continue; }
       const ty = fleetTypes[t.truckIndex];
+      roll[ty.id]++;
       const h = t.distance / MI / ty.mph + (t.stops * MIN_STOP + t.bikesMoved * MIN_BIKE) / 60;
       const ot = Math.max(0, h - SHIFT_H);
       cost += ty.fx + (t.distance / MI) * ty.mi + ot * ty.ot;
       maxH = Math.max(maxH, h);
       otH += ot;
     }
-    out.push({ m, size: m[0] + m[1] + m[2], cost, unserved: res.metrics.unsatisfied, maxH, otH, idle });
+    const rm = [roll.truck, roll.van, roll.trailer];
+    out.push({
+      m, rm, size: m[0] + m[1] + m[2], rollingSize: rm[0] + rm[1] + rm[2],
+      cost, unserved: res.metrics.unsatisfied, maxH, otH, idle,
+    });
   }
   return { count: mixes.length, out };
 }, { TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, MAX_TOTAL, MI });
@@ -108,17 +114,22 @@ check(
   `${cards.values[0]} vs $${expectedRec ? Math.round(expectedRec.cost) : '—'}`
 );
 if (expectedRec) {
+  // The pick bar headlines what ROLLS, not what's owned.
   const words = [
-    [expectedRec.m[0], 'box truck'],
-    [expectedRec.m[1], 'cargo van'],
-    [expectedRec.m[2], 'bike trailer'],
+    [expectedRec.rm[0], 'box truck'],
+    [expectedRec.rm[1], 'cargo van'],
+    [expectedRec.rm[2], 'bike trailer'],
   ]
     .filter(([n]) => n > 0)
     .map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`)
     .join(' + ');
-  // Cards are pure label + number; the mix words live in the pick bar.
   const pickStrong = await page.evaluate(() => document.querySelector('#finder-pick strong')?.textContent || '');
-  check(pickStrong.includes(words), 'pick bar names the recommended mix', `${pickStrong} vs ${words}`);
+  check(pickStrong.includes(words), 'pick bar names the recommended rolling mix', `${pickStrong} vs ${words}`);
+  check(
+    pickStrong.startsWith(`${expectedRec.rollingSize} vehicle`),
+    'pick bar counts vehicles on the road, not owned',
+    pickStrong
+  );
   check(cards.subs.length === 0, 'KPI cards carry no sub-text', String(cards.subs.length));
 }
 
@@ -135,9 +146,9 @@ check(
   cards.values[2]
 );
 
-// The trucks-only fact lives in the caption, priced with overtime.
+// The trucks-only fact lives in the caption, judged on what rolls.
 const captionText = await page.evaluate(() => document.querySelector('.finder-caption')?.textContent || '');
-const trucksOnly = covered.filter((r) => r.m[1] === 0 && r.m[2] === 0);
+const trucksOnly = covered.filter((r) => r.rm[1] === 0 && r.rm[2] === 0);
 check(
   trucksOnly.length ? captionText.includes('box-trucks-only plan runs') : captionText.includes('box trucks alone'),
   'caption states the box-trucks-only verdict'
@@ -188,23 +199,23 @@ check(!(await shown('finder-overlay')), 'clicking outside dismisses overlay');
 // Re-open: the recommendation is PRE-SELECTED in the pick bar (confirmation
 // before anything touches the map), clicking a column re-previews, and only
 // the explicit apply button closes + applies.
-const applySize = expectedRec ? expectedRec.size : 6;
+const applySize = expectedRec ? expectedRec.rollingSize : 6;
 await page.evaluate(() => document.getElementById('finder-open').click());
 await page.waitForFunction(() => !!document.querySelector('.finder-svg'), { timeout: 60000 });
 await page.waitForTimeout(200);
 const prePick = await page.evaluate(() => document.querySelector('#finder-pick strong')?.textContent || '');
 check(
-  expectedRec == null || prePick.startsWith(`${expectedRec.size} vehicle`),
+  expectedRec == null || prePick.startsWith(`${expectedRec.rollingSize} vehicle`),
   'pick bar opens pre-selected on the recommendation',
   prePick
 );
 
-// When a leaner full-coverage fleet comes within 10% of the recommendation,
+// When a leaner full-coverage plan comes within 10% of the recommendation,
 // the why-line surfaces it (maintenance and hiring aren't in the price).
 const lean = expectedRec
   ? covered
-      .filter((r) => r.size < expectedRec.size && r.cost - expectedRec.cost < expectedRec.cost * 0.1)
-      .sort((a, b) => a.size - b.size || a.cost - b.cost)[0]
+      .filter((r) => r.rollingSize < expectedRec.rollingSize && r.cost - expectedRec.cost < expectedRec.cost * 0.1)
+      .sort((a, b) => a.rollingSize - b.rollingSize || a.cost - b.cost)[0]
   : null;
 const whyOpen = await page.evaluate(() => document.querySelector('.finder-pick-why')?.textContent || '');
 check(
@@ -231,10 +242,10 @@ check(otherPick.text.startsWith(`${otherSize} vehicle`), 'pick bar describes the
 check(otherPick.selectedCol === String(otherSize), 'clicked column is marked selected', otherPick.selectedCol);
 
 // The selected-fleet card follows the click, priced per the independent sweep
-// (overtime included; ordering is coverage then cost).
+// (overtime included; ordering is coverage then cost; buckets are by what ROLLS).
 const bestOfSize = (size) =>
   truth.out
-    .filter((r) => r.size === size)
+    .filter((r) => r.rollingSize === size)
     .sort((a, b) => a.unserved - b.unserved || a.cost - b.cost)[0];
 const selCard = await page.evaluate(() => document.getElementById('finder-sel-value')?.textContent);
 check(selCard === fmt(bestOfSize(otherSize).cost), 'selected-fleet card updates with the click', selCard);
@@ -250,15 +261,15 @@ check(
 );
 check(
   otherBest.idle > 0
-    ? pickStats.includes(`${otherBest.idle} parked at the depot`)
+    ? pickStats.includes(`${otherBest.idle} spare parked at the depot`)
     : !pickStats.includes('parked'),
-  'pick bar reports parked vehicles',
+  'pick bar reports parked spares',
   `idle=${otherBest.idle}`
 );
 
-// The pick bar justifies the winner against its same-size rivals.
+// The pick bar justifies the winner against its same-rolling-size rivals.
 const why = await page.evaluate(() => document.querySelector('.finder-pick-why')?.textContent || '');
-check(/All \d+ possible \d+-vehicle mixes were solved/.test(why), 'pick bar explains why the mix won', why.slice(0, 70));
+check(/Of the \d+ solved plans that roll \d+ vehicles/.test(why), 'pick bar explains why the plan won', why.slice(0, 70));
 // Back to the recommended size, then confirm via the apply button.
 await page.evaluate((k) => {
   document.querySelector(`.finder-hit[data-k="${k}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -267,12 +278,20 @@ await page.waitForTimeout(150);
 await page.evaluate(() => document.getElementById('finder-apply').click());
 await page.waitForTimeout(400);
 check(!(await shown('finder-overlay')), 'apply button closes the overlay');
+// Apply sets the OWNED recipe (which may include a parked spare), so the
+// steppers must match the winning plan's owned mix, not its rolling count.
+const expectedOwned = bestOfSize(applySize);
 const applied = await page.evaluate(() => ({
   total: Number(document.getElementById('fleet-total').textContent),
   fleet: window.__rebalance.fleet(),
 }));
-const appliedTotal = Object.values(applied.fleet).reduce((s, n) => s + n, 0);
-check(applied.total === applySize && appliedTotal === applySize, 'apply put the selected mix on the steppers', JSON.stringify(applied.fleet));
+check(
+  applied.fleet.truck === expectedOwned.m[0] &&
+    applied.fleet.van === expectedOwned.m[1] &&
+    applied.fleet.trailer === expectedOwned.m[2],
+  'apply put the winning plan\'s owned recipe on the steppers',
+  `${JSON.stringify(applied.fleet)} vs [${expectedOwned.m}]`
+);
 
 // Let the re-solve + camera settle, then capture the map.
 await page.waitForTimeout(1400);
