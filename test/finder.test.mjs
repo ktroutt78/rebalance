@@ -68,9 +68,9 @@ const truth = await page.evaluate(async ({ TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, M
     const fleetTypes = [];
     m.forEach((n, i) => { for (let k = 0; k < n; k++) fleetTypes.push(TYPES[i]); });
     const res = await window.__rebalance.solveOnce({ fleet: fleetTypes.map((t) => t.cap) });
-    let cost = 0, maxH = 0, otH = 0;
+    let cost = 0, maxH = 0, otH = 0, idle = 0;
     for (const t of res.metrics.perTruck) {
-      if (t.stops === 0) continue;
+      if (t.stops === 0) { idle++; continue; }
       const ty = fleetTypes[t.truckIndex];
       const h = t.distance / MI / ty.mph + (t.stops * MIN_STOP + t.bikesMoved * MIN_BIKE) / 60;
       const ot = Math.max(0, h - SHIFT_H);
@@ -78,7 +78,7 @@ const truth = await page.evaluate(async ({ TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, M
       maxH = Math.max(maxH, h);
       otH += ot;
     }
-    out.push({ m, size: m[0] + m[1] + m[2], cost, unserved: res.metrics.unsatisfied, maxH, otH });
+    out.push({ m, size: m[0] + m[1] + m[2], cost, unserved: res.metrics.unsatisfied, maxH, otH, idle });
   }
   return { count: mixes.length, out };
 }, { TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, MAX_TOTAL, MI });
@@ -241,12 +241,19 @@ check(selCard === fmt(bestOfSize(otherSize).cost), 'selected-fleet card updates 
 const hrsCard = await page.evaluate(() => document.getElementById('finder-hrs-value')?.textContent);
 const otherBest = bestOfSize(otherSize);
 check(hrsCard === `${otherBest.maxH.toFixed(1)} h`, 'longest-route card updates with the click', hrsCard);
-// The overtime detail lives in the pick bar now.
+// The overtime + parked-vehicle detail lives in the pick bar now.
 const pickStats = await page.evaluate(() => document.querySelector('.finder-pick-stats')?.textContent || '');
 check(
   otherBest.otH <= 0 || pickStats.includes(`${otherBest.otH.toFixed(1)} h overtime`),
   'pick bar prices the overtime',
   pickStats
+);
+check(
+  otherBest.idle > 0
+    ? pickStats.includes(`${otherBest.idle} parked at the depot`)
+    : !pickStats.includes('parked'),
+  'pick bar reports parked vehicles',
+  `idle=${otherBest.idle}`
 );
 
 // The pick bar justifies the winner against its same-size rivals.

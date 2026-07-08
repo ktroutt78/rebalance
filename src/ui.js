@@ -151,11 +151,22 @@ export function renderMetrics(metrics, fleet = []) {
 
   // Per-vehicle breakdown: color swatch, type, distance, max-load bar (vs its
   // own capacity, so a full trailer reads as full even next to a box truck).
+  // Idle vehicles get an explicit ghosted row — the solver sometimes parks a
+  // vehicle (its cluster emptied out), and a fleet of 5 must show 5 rows or
+  // the map reads as missing one. Idle rows aren't clickable (nothing to focus).
   const rows = metrics.perTruck
-    .filter((t) => t.stops > 0)
     .map((t) => {
       const color = TRUCK_COLORS[t.truckIndex % TRUCK_COLORS.length];
       const type = fleet[t.truckIndex];
+      if (t.stops === 0) {
+        return `
+        <div class="truck-row idle" title="Vehicle ${t.truckIndex + 1}${type ? ` — ${type.name}` : ''} has no route this plan">
+          <span class="swatch" style="background:${rgb(color)}"></span>
+          <span class="t-name">${t.truckIndex + 1}</span>
+          <span class="t-type">${type ? type.short : ''}</span>
+          <span class="t-idle">idle · parked at the depot</span>
+        </div>`;
+      }
       const cap = t.capacity ?? metrics.capacity;
       const loadPct = cap > 0 ? Math.min(100, (t.maxLoad / cap) * 100) : 0;
       return `
@@ -194,7 +205,7 @@ export function bindTruckClicks(handler) {
   const el = $('truck-breakdown');
   const fire = (e) => {
     const row = e.target.closest('.truck-row');
-    if (!row) return;
+    if (!row || row.dataset.truck === undefined) return; // idle rows aren't focusable
     if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
     handler(Number(row.dataset.truck));

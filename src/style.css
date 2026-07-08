@@ -413,6 +413,19 @@ input[type='range'] {
   overflow: hidden;
 }
 
+/* A vehicle the solver left parked: visible (the fleet count must add up)
+   but ghosted and inert — there's no route to focus. */
+.truck-row.idle {
+  cursor: default;
+  opacity: 0.55;
+}
+.truck-row.idle:hover {
+  background: none;
+}
+.truck-row .t-idle {
+  color: var(--text-dim);
+}
+
 .truck-row .t-bar > i {
   display: block;
   height: 100%;

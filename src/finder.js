@@ -104,6 +104,7 @@ export function initFinder({ solve, getContext, onApply }) {
         unserved: r.metrics.unsatisfied,
         maxHours: planMaxHours(fleet, r.metrics.perTruck),
         otHours: planOvertimeHours(fleet, r.metrics.perTruck),
+        idle: r.metrics.perTruck.filter((t) => t.stops === 0).length,
         distance: r.metrics.totalDistance,
       });
     }
@@ -246,9 +247,12 @@ export function initFinder({ solve, getContext, onApply }) {
       }
       const coveredPick = pick.unserved === 0;
       const coverage = coveredPick ? 'full coverage' : `${pick.unserved} stations unserved`;
-      const shiftNote = `longest route ${pick.maxHours.toFixed(1)} h${
-        pick.otHours > 0 ? ` · ${pick.otHours.toFixed(1)} h overtime` : ''
-      }`;
+      // Say when the solver parks vehicles — a "5-vehicle" plan that rolls 4
+      // must announce it, or the map looks like it lost one.
+      const shiftNote =
+        `longest route ${pick.maxHours.toFixed(1)} h` +
+        (pick.otHours > 0 ? ` · ${pick.otHours.toFixed(1)} h overtime` : '') +
+        (pick.idle > 0 ? ` · ${pick.idle} parked at the depot` : '');
 
       // Cards two and three track the selection for at-a-glance comparison
       // against the recommendation in card one — pure label + number; the
