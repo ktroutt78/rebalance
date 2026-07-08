@@ -158,6 +158,11 @@ export function initFinder({ solve, getContext, onApply }) {
           <span class="finder-stat-value" id="finder-sel-value">—</span>
           <span class="finder-stat-sub" id="finder-sel-sub">click a column to compare</span>
         </div>
+        <div class="finder-card-stat">
+          <span class="finder-stat-label">Longest route</span>
+          <span class="finder-stat-value hours" id="finder-hrs-value">—</span>
+          <span class="finder-stat-sub" id="finder-hrs-sub"></span>
+        </div>
       </div>
       <div class="finder-chart" id="finder-chart">
         ${finderChartSVG(
@@ -191,6 +196,8 @@ export function initFinder({ solve, getContext, onApply }) {
     const selLabel = body.querySelector('#finder-sel-label');
     const selValue = body.querySelector('#finder-sel-value');
     const selSub = body.querySelector('#finder-sel-sub');
+    const hrsValue = body.querySelector('#finder-hrs-value');
+    const hrsSub = body.querySelector('#finder-hrs-sub');
     let selectedSize = recommended ? recommended.size : points[points.length - 1]?.size ?? null;
 
     // Justify the winner against its same-size rivals: every mix of that size
@@ -200,7 +207,11 @@ export function initFinder({ solve, getContext, onApply }) {
       const rivals = results.filter((r) => r.size === pick.size && r !== pick);
       const n = rivals.length + 1;
       if (pick.unserved > 0 || pick.fits !== 0) {
-        return `All ${n} possible ${pick.size}-vehicle mixes were solved; none serves every station within the shift, and this one comes closest.`;
+        const reason =
+          pick.unserved > 0
+            ? 'this one comes closest'
+            : `this one serves every station but its longest route runs ${pick.maxHours.toFixed(1)} h`;
+        return `All ${n} possible ${pick.size}-vehicle mixes were solved; none is workable, and ${reason}.`;
       }
       const parts = [
         `All ${n} possible ${pick.size}-vehicle mixes were solved; this is the cheapest that serves every station within the shift.`,
@@ -237,15 +248,16 @@ export function initFinder({ solve, getContext, onApply }) {
         pick.fits === 0 ? '' : ` (over the ${SHIFT.hours} h shift)`
       }`;
 
-      // Second stat card tracks the selection for at-a-glance comparison
-      // against the recommendation in card one.
+      // Cards two and three track the selection for at-a-glance comparison
+      // against the recommendation in card one. Colors follow the chart's
+      // series: teal means dollars, orange means hours.
       selLabel.textContent =
         recommended && pick.size === recommended.size ? 'Selected fleet (the recommendation)' : 'Selected fleet';
       selValue.textContent = formatMoney(pick.cost);
-      selValue.classList.toggle('warn', !workable);
-      selSub.textContent = `${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${coverage} · ${
-        workable ? `fits the ${SHIFT.hours} h shift` : shiftNote
-      }`;
+      selSub.textContent = `${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${coverage}`;
+      hrsValue.textContent = `${pick.maxHours.toFixed(1)} h`;
+      hrsSub.textContent = pick.fits === 0 ? `fits the ${SHIFT.hours} h shift` : `⚠ over the ${SHIFT.hours} h shift`;
+      hrsSub.classList.toggle('warn', pick.fits !== 0);
 
       pickEl.innerHTML = `
         <div class="finder-pick-info${workable ? '' : ' warn'}">

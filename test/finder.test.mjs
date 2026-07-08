@@ -116,12 +116,17 @@ if (expectedRec) {
   check(cards.subs[0] === words, 'card 1 names the recommended mix', `${cards.subs[0]} vs ${words}`);
 }
 
-// Card 2 tracks the SELECTION and opens on the recommendation.
+// Cards 2 + 3 track the SELECTION and open on the recommendation.
 const fmt = (v) => `$${Math.round(v).toLocaleString('en-US')}`;
 check(
   cards.values[1] === (expectedRec ? fmt(expectedRec.cost) : '—'),
   'card 2 (selected fleet) opens on the recommendation',
   cards.values[1]
+);
+check(
+  expectedRec == null || cards.values[2] === `${expectedRec.maxH.toFixed(1)} h`,
+  'card 3 (longest route) opens on the recommendation',
+  cards.values[2]
 );
 
 // The trucks-only fact moved to the caption.
@@ -207,6 +212,13 @@ const bestOfSize = (size) =>
     )[0];
 const selCard = await page.evaluate(() => document.getElementById('finder-sel-value')?.textContent);
 check(selCard === fmt(bestOfSize(otherSize).cost), 'selected-fleet card updates with the click', selCard);
+const hrsCard = await page.evaluate(() => ({
+  value: document.getElementById('finder-hrs-value')?.textContent,
+  warn: document.getElementById('finder-hrs-sub')?.classList.contains('warn'),
+}));
+const otherBest = bestOfSize(otherSize);
+check(hrsCard.value === `${otherBest.maxH.toFixed(1)} h`, 'longest-route card updates with the click', hrsCard.value);
+check(hrsCard.warn === otherBest.maxH > SHIFT_H, 'longest-route verdict matches the shift', `warn=${hrsCard.warn}`);
 
 // The pick bar justifies the winner against its same-size rivals.
 const why = await page.evaluate(() => document.querySelector('.finder-pick-why')?.textContent || '');

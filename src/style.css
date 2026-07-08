@@ -1123,7 +1123,11 @@ input[type='range'] {
   color: var(--text-dim);
   margin-top: 2px;
 }
-.finder-stat-value.warn {
+/* Card colors follow the chart series: teal = dollars, orange = hours. */
+.finder-stat-value.hours {
+  color: #ffb44c;
+}
+.finder-stat-sub.warn {
   color: #ffb44c;
 }
 .finder-apply-btn {
