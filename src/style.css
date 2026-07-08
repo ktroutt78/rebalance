@@ -217,6 +217,15 @@ input[type='range'] {
   font-weight: 600;
 }
 
+/* Named yard chips: 2×2 grid of speed-button-styled chips */
+.depot-presets {
+  flex-wrap: wrap;
+}
+.depot-presets button {
+  flex: 1 1 45%;
+  font-size: 11px;
+}
+
 /* Fleet mix steppers: one row per vehicle type */
 .fleet-controls {
   display: flex;

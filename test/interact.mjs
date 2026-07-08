@@ -89,6 +89,24 @@ await waitForTotalChange(before.total).catch(() => {});
 const afterDrag = await read();
 check(afterDrag.total !== before.total, 'depot drag re-solves (total distance changed)', `${before.total}→${afterDrag.total}`);
 
+// 4) Depot presets: a dragged (custom) depot lights no chip; clicking a named
+// yard moves the depot, lights its chip, and re-solves.
+const activeAfterDrag = await page.evaluate(() => document.querySelectorAll('#depot-presets button.active').length);
+check(activeAfterDrag === 0, 'custom-dragged depot lights no preset chip', String(activeAfterDrag));
+const beforePreset = await read();
+await page.evaluate(() => document.querySelector('#depot-presets button[data-depot="midtown"]').click());
+await waitForTotalChange(beforePreset.total).catch(() => {});
+const afterPreset = await read();
+const dep = await page.evaluate(() => window.__rebalance.depot());
+check(
+  Math.abs(dep.lng - -73.984) < 1e-6 && Math.abs(dep.lat - 40.754) < 1e-6,
+  'preset chip moved the depot to Midtown',
+  JSON.stringify(dep)
+);
+check(afterPreset.total !== beforePreset.total, 'preset re-solves (total distance changed)', `${beforePreset.total}→${afterPreset.total}`);
+const activePreset = await page.evaluate(() => document.querySelector('#depot-presets button.active')?.dataset.depot);
+check(activePreset === 'midtown', 'active chip tracks the current depot', activePreset);
+
 check(errors.length === 0, 'no page errors', errors.join(' | '));
 
 await browser.close();

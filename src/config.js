@@ -20,6 +20,17 @@ export const INITIAL_VIEW = {
 // Default depot — a plausible central maintenance yard. Draggable at runtime.
 export const DEFAULT_DEPOT = { lng: -73.993, lat: 40.735 };
 
+// Named yard presets: one-click depot moves that teach the depot is a
+// variable (it stays draggable anywhere). Depot placement changes the whole
+// answer — the fleet finder re-plans from wherever it sits. Navy Yard is
+// Citi Bike's real-world operations hub.
+export const DEPOT_PRESETS = [
+  { id: 'east-village', name: 'East Village', lng: -73.993, lat: 40.735 },
+  { id: 'midtown', name: 'Midtown', lng: -73.984, lat: 40.754 },
+  { id: 'uptown', name: 'Uptown', lng: -73.95, lat: 40.79 },
+  { id: 'navy-yard', name: 'Navy Yard', lng: -73.9721, lat: 40.7 },
+];
+
 // --- Solver control ranges + initial landing values (section 10 open items) ---
 export const K_RANGE = { min: 1, max: 8, default: 4 }; // trucks
 // Grounded in real fleet sizes: rebalancing runs 3-bike trailers up through box

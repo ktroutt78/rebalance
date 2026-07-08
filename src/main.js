@@ -24,6 +24,8 @@ import {
   initFleetControls,
   setFleetCounts,
   setFleetHighlight,
+  initDepotPresets,
+  setDepotActive,
   initSpeedControl,
   initPlayToggle,
   renderMetrics,
@@ -136,8 +138,10 @@ async function boot() {
   bindTruckClicks((t) => focusTruck(t));
   subscribe(onSelectionChange);
 
-  // --- depot: draggable native marker, re-solve on drop ---
+  // --- depot: draggable native marker + named yard presets, re-solve on move ---
   createDepotMarker();
+  initDepotPresets({ onPick: applyDepot });
+  setDepotActive(state.depot);
 
   // --- first solve, then reveal the (already animating) map ---
   setLoadingText('Solving initial rebalancing…');
@@ -373,21 +377,32 @@ function onDeckClick(info) {
   }
 }
 
+let depotMarker = null; // the draggable maplibre marker (presets move it too)
+
+// Jump the depot to a named yard: move the marker, light the chip, re-solve.
+function applyDepot(preset) {
+  state.depot = { lng: preset.lng, lat: preset.lat };
+  depotMarker?.setLngLat([preset.lng, preset.lat]);
+  setDepotActive(state.depot);
+  resolve();
+}
+
 function createDepotMarker() {
   const el = document.createElement('div');
   el.className = 'depot-marker';
   el.title = 'Depot — drag to relocate the yard';
-  const marker = new maplibregl.Marker({ element: el, draggable: true })
+  depotMarker = new maplibregl.Marker({ element: el, draggable: true })
     .setLngLat([state.depot.lng, state.depot.lat])
     .addTo(map);
 
-  marker.on('drag', () => {
-    const { lng, lat } = marker.getLngLat();
+  depotMarker.on('drag', () => {
+    const { lng, lat } = depotMarker.getLngLat();
     state.depot = { lng, lat }; // live marker move; route updates on drop
   });
-  marker.on('dragend', () => {
-    const { lng, lat } = marker.getLngLat();
+  depotMarker.on('dragend', () => {
+    const { lng, lat } = depotMarker.getLngLat();
     state.depot = { lng, lat };
+    setDepotActive(state.depot); // a custom spot lights no preset chip
     resolve();
   });
 }

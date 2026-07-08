@@ -3,6 +3,7 @@
 import {
   VEHICLE_TYPES,
   FLEET_MAX_TOTAL,
+  DEPOT_PRESETS,
   SHIFT,
   TRUCK_COLORS,
   formatDistance,
@@ -91,6 +92,31 @@ export function setFleetCounts(counts) {
   if (!fleetState) return;
   for (const t of VEHICLE_TYPES) fleetState.counts[t.id] = counts[t.id] || 0;
   fleetState.render();
+}
+
+// Named yard chips. onPick(preset) moves the depot + re-solves; the marker
+// stays draggable for arbitrary spots (dragging just clears the active chip).
+export function initDepotPresets({ onPick }) {
+  const wrap = $('depot-presets');
+  wrap.innerHTML = DEPOT_PRESETS.map(
+    (p) => `<button type="button" data-depot="${p.id}" title="Move the depot to ${p.name} and re-solve">${p.name}</button>`
+  ).join('');
+  wrap.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    const preset = DEPOT_PRESETS.find((p) => p.id === b.dataset.depot);
+    if (preset) onPick(preset);
+  });
+}
+
+// Reflect the current depot back onto the chips: the matching preset lights
+// up; a custom (dragged) spot lights none.
+export function setDepotActive(depot) {
+  document.querySelectorAll('#depot-presets button').forEach((b) => {
+    const p = DEPOT_PRESETS.find((x) => x.id === b.dataset.depot);
+    const on = !!p && Math.abs(p.lng - depot.lng) < 1e-6 && Math.abs(p.lat - depot.lat) < 1e-6;
+    b.classList.toggle('active', on);
+  });
 }
 
 const rgb = (c) => `rgb(${c[0]},${c[1]},${c[2]})`;
