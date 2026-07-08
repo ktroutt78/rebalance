@@ -174,6 +174,10 @@ export function initFinder({ solve, getContext, onApply }) {
           <span class="finder-stat-label">Longest route selected</span>
           <span class="finder-stat-value hours" id="finder-hrs-value">—</span>
         </div>
+        <div class="finder-card-stat">
+          <span class="finder-stat-label">Total distance selected</span>
+          <span class="finder-stat-value dist" id="finder-dist-value">—</span>
+        </div>
       </div>
       <div class="finder-chart" id="finder-chart">
         ${finderChartSVG(
@@ -208,6 +212,7 @@ export function initFinder({ solve, getContext, onApply }) {
     const selLabel = body.querySelector('#finder-sel-label');
     const selValue = body.querySelector('#finder-sel-value');
     const hrsValue = body.querySelector('#finder-hrs-value');
+    const distValue = body.querySelector('#finder-dist-value');
     let selectedSize = recommended ? recommended.rollingSize : points[points.length - 1]?.rollingSize ?? null;
 
     // Justify the winner against its same-size rivals: every mix of that size
@@ -290,6 +295,7 @@ export function initFinder({ solve, getContext, onApply }) {
       selLabel.textContent = recommended && pick === recommended ? 'Selected fleet (recommended)' : 'Selected fleet';
       selValue.textContent = formatMoney(pick.cost);
       hrsValue.textContent = `${pick.maxHours.toFixed(1)} h`;
+      distValue.textContent = formatDistance(pick.distance);
 
       pickEl.innerHTML = `
         <div class="finder-pick-info${coveredPick ? '' : ' warn'}">
@@ -323,14 +329,14 @@ export function initFinder({ solve, getContext, onApply }) {
   }
 
   function captionFor(mixCount, recommended, bestTrucksOnly) {
-    const cap = `Every point is the cheapest of ${mixCount} solved mixes (up to 4 of each type, ${FLEET_MAX_TOTAL} total), grouped by how many vehicles actually roll; a spare that parks costs nothing but can still shape a better split. Hours past the ${SHIFT.hours}-hour overnight shift bill as overtime, so a small fleet driving all night prices itself out. `;
+    const cap = `Every point is the cheapest of ${mixCount} solved mixes (up to 4 of each type, ${FLEET_MAX_TOTAL} total), grouped by how many vehicles actually roll; a spare that parks costs nothing but can still shape a better split. `;
     if (!recommended) {
       return cap + `Nothing serves every station; the dashed line shows each plan's longest route.`;
     }
     const trucksNote = bestTrucksOnly
       ? `The cheapest box-trucks-only plan runs ${formatMoney(bestTrucksOnly.cost)}.`
       : `No fleet of box trucks alone serves every station.`;
-    return cap + `${trucksNote} Click a column to preview.`;
+    return cap + `${trucksNote} Click a column to preview; move the depot and reopen to re-plan from there.`;
   }
 
   function loadingHTML(total) {

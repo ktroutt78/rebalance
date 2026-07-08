@@ -146,6 +146,11 @@ check(
   'card 3 (longest route) opens on the recommendation',
   cards.values[2]
 );
+check(
+  expectedRec == null || cards.values[3] === `${(expectedRec.dist / MI).toFixed(1)} mi`,
+  'card 4 (total distance) opens on the recommendation',
+  cards.values[3]
+);
 
 // The trucks-only fact lives in the caption, judged on what rolls.
 const captionText = await page.evaluate(() => document.querySelector('.finder-caption')?.textContent || '');
@@ -154,7 +159,9 @@ check(
   trucksOnly.length ? captionText.includes('box-trucks-only plan runs') : captionText.includes('box trucks alone'),
   'caption states the box-trucks-only verdict'
 );
-check(captionText.includes('overtime'), 'caption explains the overtime pricing');
+// Overtime pricing is explained once, in the intro (the caption stays lean).
+const introText = await page.evaluate(() => document.querySelector('.finder-intro')?.textContent || '');
+check(introText.includes('overtime'), 'intro explains the overtime pricing');
 
 // No em dashes anywhere in the modal copy.
 const modalText = await page.evaluate(() => document.querySelector('.finder-card')?.innerText || '');
@@ -253,6 +260,8 @@ check(selCard === fmt(bestOfSize(otherSize).cost), 'selected-fleet card updates 
 const hrsCard = await page.evaluate(() => document.getElementById('finder-hrs-value')?.textContent);
 const otherBest = bestOfSize(otherSize);
 check(hrsCard === `${otherBest.maxH.toFixed(1)} h`, 'longest-route card updates with the click', hrsCard);
+const distCard = await page.evaluate(() => document.getElementById('finder-dist-value')?.textContent);
+check(distCard === `${(otherBest.dist / MI).toFixed(1)} mi`, 'total-distance card updates with the click', distCard);
 // The overtime + parked-vehicle detail lives in the pick bar now.
 const pickStats = await page.evaluate(() => document.querySelector('.finder-pick-stats')?.textContent || '');
 check(
