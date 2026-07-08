@@ -84,6 +84,7 @@ const truth = await page.evaluate(async ({ TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, M
     out.push({
       m, rm, size: m[0] + m[1] + m[2], rollingSize: rm[0] + rm[1] + rm[2],
       cost, unserved: res.metrics.unsatisfied, maxH, otH, idle,
+      dist: res.metrics.totalDistance,
     });
   }
   return { count: mixes.length, out };
@@ -257,6 +258,11 @@ const pickStats = await page.evaluate(() => document.querySelector('.finder-pick
 check(
   otherBest.otH <= 0 || pickStats.includes(`${otherBest.otH.toFixed(1)} h overtime`),
   'pick bar prices the overtime',
+  pickStats
+);
+check(
+  pickStats.includes(`${(otherBest.dist / MI).toFixed(1)} mi`),
+  'pick bar shows total distance',
   pickStats
 );
 check(

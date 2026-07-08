@@ -20,6 +20,7 @@ import {
   planMaxHours,
   planOvertimeHours,
   formatMoney,
+  formatDistance,
 } from './config.js';
 import { finderChartSVG } from './charts.js';
 
@@ -293,7 +294,7 @@ export function initFinder({ solve, getContext, onApply }) {
       pickEl.innerHTML = `
         <div class="finder-pick-info${coveredPick ? '' : ' warn'}">
           <strong>${pick.rollingSize} vehicle${pick.rollingSize === 1 ? '' : 's'} on the road · ${mixWords(pick.rolling)}</strong>
-          <span class="finder-pick-stats">${formatMoney(pick.cost)} · ${coverage} · ${shiftNote}</span>
+          <span class="finder-pick-stats">${formatMoney(pick.cost)} · ${formatDistance(pick.distance)} · ${coverage} · ${shiftNote}</span>
           <span class="finder-pick-why">${whyPick(pick)}</span>
         </div>
         <button type="button" id="finder-apply" class="info-btn finder-apply-btn">Put on the map</button>
