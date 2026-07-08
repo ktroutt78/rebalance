@@ -145,10 +145,15 @@ check(captionText.includes('overtime'), 'caption explains the overtime pricing')
 const modalText = await page.evaluate(() => document.querySelector('.finder-card')?.innerText || '');
 check(!modalText.includes('—'), 'no em dashes in the finder modal');
 
-// Right axis ticks align with the shift guide (8 sits on a gridline).
+// Right axis runs 0–24 (a full day of hours) in clean quarters; the labeled
+// guide line marks the 8 h shift itself.
 const rightTicks = await page.evaluate(() =>
   Array.from(document.querySelectorAll('.finder-axis-r')).map((e) => e.textContent));
-check(rightTicks.includes(String(SHIFT_H)), 'right axis ticks include the 8 h shift line', rightTicks.join(','));
+check(
+  ['24', '18', '12', '6', '0'].every((t) => rightTicks.includes(t)),
+  'right axis reads 0-24 hours in clean quarters',
+  rightTicks.join(',')
+);
 
 // Chart shape: 8 hit columns, both lines, shift guide, recommended halo.
 const chartShape = await page.evaluate(() => ({

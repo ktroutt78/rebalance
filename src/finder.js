@@ -173,6 +173,7 @@ export function initFinder({ solve, getContext, onApply }) {
             xTitle: 'fleet size (best mix at each)',
             fmtLeft: (v) => `$${Math.round(v)}`,
             rightGuide: { value: SHIFT.hours, label: `${SHIFT.hours} h shift` },
+            rightMaxHint: 24, // a full day of hours; the worst route is ~23 h
           }
         )}
       </div>

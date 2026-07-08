@@ -175,6 +175,7 @@ export function finderChartSVG(
     xTitle = '',
     fmtLeft = (v) => String(Math.round(v)),
     rightGuide = null, // { value, label } — horizontal reference on the right axis
+    rightMaxHint = null, // preferred right-axis top (e.g. 24 h = a full day); used when the data fits
   } = {}
 ) {
   const W = 560, H = 252; // short enough that the modal never scrolls at 900px
@@ -188,16 +189,20 @@ export function finderChartSVG(
   const lefts = points.map((p) => p.left);
   const rights = points.map((p) => p.right);
   const leftMax = niceMax(Math.max(1e-6, ...lefts));
-  // Right axis: keep the guide on-scale, and when there IS a guide, pick the
-  // scale so the guide lands EXACTLY on a gridline (steps of guide/4 doubled
-  // until the data fits) — otherwise the shared gridlines tick the right axis
-  // at junk values (6.3, 12.5, …) and the reference floats unreadably between
-  // them, the classic dual-axis failure.
-  let rightMax = Math.max(1, niceMax(Math.max(...rights, rightGuide ? rightGuide.value : 0)));
-  if (rightGuide && rightGuide.value > 0) {
-    const dataMax = Math.max(...rights, rightGuide.value);
+  // Right axis: prefer the caller's semantic top (24 = a full day of hours)
+  // whenever the data fits under it — the ticks then read as clean quarters
+  // (6/12/18/24) and the labeled guide line marks the threshold itself.
+  // Without a hint, a guide still forces a scale where it lands EXACTLY on a
+  // gridline (steps of guide/4 doubled until the data fits) — otherwise the
+  // shared gridlines tick the right axis at junk values (6.3, 12.5, …), the
+  // classic dual-axis failure.
+  const rightDataMax = Math.max(...rights, rightGuide ? rightGuide.value : 0);
+  let rightMax = Math.max(1, niceMax(rightDataMax));
+  if (rightMaxHint && rightDataMax <= rightMaxHint) {
+    rightMax = rightMaxHint;
+  } else if (rightGuide && rightGuide.value > 0) {
     let step = rightGuide.value / STEPS;
-    while (step * STEPS < dataMax) step *= 2;
+    while (step * STEPS < rightDataMax) step *= 2;
     rightMax = step * STEPS;
   }
 
