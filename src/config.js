@@ -22,7 +22,9 @@ export const DEFAULT_DEPOT = { lng: -73.993, lat: 40.735 };
 
 // --- Solver control ranges + initial landing values (section 10 open items) ---
 export const K_RANGE = { min: 1, max: 8, default: 4 }; // trucks
-export const C_RANGE = { min: 8, max: 80, default: 30 }; // bikes per truck
+// Grounded in real fleet sizes: rebalancing runs 3-bike trailers up through box
+// trucks carrying a few dozen. We model the larger trucks — 10–40, default 30.
+export const C_RANGE = { min: 10, max: 40, default: 30 }; // bikes per truck
 
 // --- Data ---
 export const PARQUET_URL = `${import.meta.env.BASE_URL}stations_demand.parquet`;

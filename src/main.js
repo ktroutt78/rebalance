@@ -40,6 +40,7 @@ import {
 } from './selection.js';
 import { renderPanel, updateLoadPlayhead } from './panel.js';
 import { initInfo } from './info.js';
+import { initFinder } from './finder.js';
 import { inject as injectAnalytics } from '@vercel/analytics';
 
 const state = {
@@ -142,6 +143,14 @@ async function boot() {
   // Intro card over the (now solved + animating) map; "?" recalls the About panel.
   initInfo();
 
+  // Configuration finder: sweeps K=1..8 at the current capacity via the real solver
+  // worker, then a clicked point applies that K to the live map.
+  initFinder({
+    solve: ({ depot, K, C }) => state.solver.solve({ depot, K, C }),
+    getContext: () => ({ depot: state.depot, C: state.C }),
+    onApply: applyTruckCount,
+  });
+
   exposeDebugHooks();
 
   // Vercel Web Analytics — injected LAST, here at the end of boot. Its insights
@@ -159,6 +168,17 @@ function onControlChange(kind, value) {
   // Debounce slider drags so we re-solve on settle, not every pixel.
   clearTimeout(resolveTimer);
   resolveTimer = setTimeout(resolve, 90);
+}
+
+// Apply a truck count chosen in the configuration finder: sync the slider + its
+// label, then re-solve immediately (no debounce — it's a deliberate single pick).
+function applyTruckCount(k) {
+  const slider = document.getElementById('k-slider');
+  const label = document.getElementById('k-val');
+  if (slider) slider.value = String(k);
+  if (label) label.textContent = String(k);
+  state.K = k;
+  resolve();
 }
 
 // Solve with the current depot/K/C. Coalesces overlapping requests.
@@ -397,6 +417,10 @@ function exposeDebugHooks() {
     focusTruck,
     clearSelection,
     stations: () => state.stations,
+    depot: () => ({ ...state.depot }),
+    // Run a single solve through the SAME worker the finder uses, without touching
+    // app state — lets a test ground-truth the finder's sweep against the real solver.
+    solveOnce: ({ K, C }) => state.solver.solve({ depot: state.depot, K, C }),
     stationToTruck: () => state.stationToTruck,
     unserved: () => [...state.unservedIdxs],
     // Pan/zoom the map to a station (used by screenshot tooling to frame the

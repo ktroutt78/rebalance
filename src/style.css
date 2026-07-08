@@ -761,3 +761,187 @@ input[type='range'] {
   transform: scale(1.08);
   box-shadow: 0 6px 22px rgba(0, 0, 0, 0.55), 0 0 0 5px rgba(76, 201, 176, 0.32);
 }
+
+/* --- Configuration finder --- */
+/* Trigger button under the Trucks slider. Outlined (not filled) so it reads as a
+   secondary action next to the primary slider controls. */
+.finder-open-btn {
+  margin-top: -4px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(76, 201, 176, 0.08);
+  border: 1px solid rgba(76, 201, 176, 0.35);
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.finder-open-btn:hover {
+  background: rgba(76, 201, 176, 0.16);
+  border-color: var(--accent);
+  color: #5fd9c0;
+}
+
+.finder-card {
+  width: 600px;
+  max-width: 94vw;
+  max-height: 92vh;
+  overflow: hidden; /* must never need an internal scrollbar at typical sizes */
+}
+.finder-intro {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin: 0 0 16px;
+  padding-right: 30px; /* clear the ✕ */
+}
+
+.finder-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Loading state during the 8-solve sweep */
+.finder-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 360px;
+}
+.finder-loading p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Two summary stat cards */
+.finder-cards {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.finder-card-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+}
+.finder-stat-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+.finder-stat-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.finder-stat-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Dual-axis chart */
+.finder-chart {
+  width: 100%;
+}
+.finder-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.finder-grid {
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 1;
+}
+.finder-axis-l,
+.finder-axis-r,
+.finder-xlabel {
+  font-size: 9px;
+  fill: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.finder-xlabel.rec {
+  fill: var(--text);
+  font-weight: 700;
+}
+.finder-axis-title {
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.finder-axis-title.l { fill: #4cc9b0; }
+.finder-axis-title.r { fill: #ffb44c; }
+.finder-xaxis-title {
+  font-size: 10px;
+  fill: var(--text-dim);
+}
+.finder-line-dist {
+  fill: none;
+  stroke: #4cc9b0;
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+}
+.finder-line-uns {
+  fill: none;
+  stroke: #ffb44c;
+  stroke-width: 2.2;
+  stroke-dasharray: 5 4;
+  stroke-linejoin: round;
+}
+.finder-dot-dist { fill: #4cc9b0; }
+.finder-dot-uns { fill: #ffb44c; }
+.finder-rec-halo {
+  fill: none;
+  stroke: #4cc9b0;
+  stroke-width: 1.6;
+  opacity: 0.6;
+}
+.finder-rec-guide {
+  stroke: rgba(76, 201, 176, 0.4);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.finder-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+.finder-hit:hover {
+  fill: rgba(255, 255, 255, 0.05);
+}
+
+.finder-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 6px 0 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.finder-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.finder-legend-rec {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.finder-caption {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
