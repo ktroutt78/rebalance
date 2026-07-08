@@ -8,6 +8,7 @@ import {
   formatDistance,
   fleetCost,
   planMaxHours,
+  planOvertimeHours,
   formatMoney,
 } from './config.js';
 
@@ -169,20 +170,23 @@ export function renderMetrics(metrics, fleet = []) {
     .join('');
   $('truck-breakdown').innerHTML = rows;
 
-  // Status states the true shortfall plainly (the cause varies — tight
-  // capacities, the cluster-first heuristic stranding stations — so don't
-  // assert one), and flags a plan whose longest route can't fit the shift.
+  // Status states the true shortfall plainly (the cause varies: tight
+  // capacities, or the cluster-first heuristic stranding stations, so don't
+  // assert one) and notes overtime, which is priced into the cost above, not
+  // a failure.
   const status = $('solve-status');
   const maxH = planMaxHours(fleet, metrics.perTruck);
-  const overShift = maxH > SHIFT.hours;
+  const otH = planOvertimeHours(fleet, metrics.perTruck);
   const shiftNote =
-    maxH > 0 ? ` · longest route ≈ ${maxH.toFixed(1)} h${overShift ? ` — over the ${SHIFT.hours} h shift` : ''}` : '';
+    maxH > 0
+      ? ` · longest route ≈ ${maxH.toFixed(1)} h${otH > 0 ? ` · ${otH.toFixed(1)} h overtime` : ''}`
+      : '';
   if (metrics.unsatisfied > 0) {
     status.textContent = `⚠ ${metrics.unsatisfied} of ${metrics.demandingStations} stations unserved${shiftNote}`;
   } else {
-    status.textContent = `${overShift ? '⚠ ' : ''}All ${metrics.demandingStations} imbalanced stations served${shiftNote}`;
+    status.textContent = `All ${metrics.demandingStations} imbalanced stations served${shiftNote}`;
   }
-  status.classList.toggle('warn', metrics.unsatisfied > 0 || overShift);
+  status.classList.toggle('warn', metrics.unsatisfied > 0);
 }
 
 // Legend entry point: a click (or keyboard activate) on a truck row focuses it.

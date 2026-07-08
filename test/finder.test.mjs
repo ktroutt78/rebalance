@@ -29,12 +29,12 @@ let fails = 0;
 const check = (c, m, x) => { console.log(`${c ? '✓' : '✗'} ${m}${x !== undefined ? ` (${x})` : ''}`); if (!c) fails++; };
 const shown = (id) => page.evaluate((i) => !document.getElementById(i).classList.contains('hidden'), id);
 
-// Mirror of the config cost + shift model. If config.js drifts, the card
-// cross-check below fails — that's the point of an independent sweep.
+// Mirror of the config cost + shift + overtime model. If config.js drifts,
+// the card cross-check below fails — that's the point of an independent sweep.
 const TYPES = [
-  { id: 'truck', cap: 30, fx: 110, mi: 2.2, mph: 9, max: 4 },
-  { id: 'van', cap: 12, fx: 60, mi: 1.25, mph: 10, max: 4 },
-  { id: 'trailer', cap: 3, fx: 20, mi: 0.5, mph: 8, max: 4 },
+  { id: 'truck', cap: 30, fx: 110, mi: 2.2, mph: 9, ot: 42, max: 4 },
+  { id: 'van', cap: 12, fx: 60, mi: 1.25, mph: 10, ot: 33, max: 4 },
+  { id: 'trailer', cap: 3, fx: 20, mi: 0.5, mph: 8, ot: 26, max: 4 },
 ];
 const SHIFT_H = 8, MIN_STOP = 1, MIN_BIKE = 0.5, MAX_TOTAL = 8, MI = 1609.344;
 
@@ -49,8 +49,8 @@ const steppers = await page.evaluate(() => ({
 check(steppers.rows === 3, 'three vehicle-type stepper rows', steppers.rows);
 check(steppers.total === '7', 'default fleet totals 7 vehicles', steppers.total);
 check(
-  steppers.counts.truck === '3' && steppers.counts.van === '1' && steppers.counts.trailer === '3',
-  'default mix is 3 trucks + 1 van + 3 trailers', JSON.stringify(steppers.counts)
+  steppers.counts.truck === '2' && steppers.counts.van === '1' && steppers.counts.trailer === '4',
+  'default mix is 2 trucks + 1 van + 4 trailers', JSON.stringify(steppers.counts)
 );
 
 // Independent ground-truth sweep via the same worker hook the finder uses.
@@ -68,21 +68,24 @@ const truth = await page.evaluate(async ({ TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, M
     const fleetTypes = [];
     m.forEach((n, i) => { for (let k = 0; k < n; k++) fleetTypes.push(TYPES[i]); });
     const res = await window.__rebalance.solveOnce({ fleet: fleetTypes.map((t) => t.cap) });
-    let cost = 0, maxH = 0;
+    let cost = 0, maxH = 0, otH = 0;
     for (const t of res.metrics.perTruck) {
       if (t.stops === 0) continue;
       const ty = fleetTypes[t.truckIndex];
-      cost += ty.fx + (t.distance / MI) * ty.mi;
-      maxH = Math.max(maxH, t.distance / MI / ty.mph + (t.stops * MIN_STOP + t.bikesMoved * MIN_BIKE) / 60);
+      const h = t.distance / MI / ty.mph + (t.stops * MIN_STOP + t.bikesMoved * MIN_BIKE) / 60;
+      const ot = Math.max(0, h - SHIFT_H);
+      cost += ty.fx + (t.distance / MI) * ty.mi + ot * ty.ot;
+      maxH = Math.max(maxH, h);
+      otH += ot;
     }
-    out.push({ m, size: m[0] + m[1] + m[2], cost, unserved: res.metrics.unsatisfied, maxH });
+    out.push({ m, size: m[0] + m[1] + m[2], cost, unserved: res.metrics.unsatisfied, maxH, otH });
   }
   return { count: mixes.length, out };
 }, { TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, MAX_TOTAL, MI });
 console.log(`  ${truth.count} mixes solved`);
 
-const workable = truth.out.filter((r) => r.unserved === 0 && r.maxH <= SHIFT_H);
-const expectedRec = workable.length ? workable.reduce((a, b) => (a.cost <= b.cost ? a : b)) : null;
+const covered = truth.out.filter((r) => r.unserved === 0);
+const expectedRec = covered.length ? covered.reduce((a, b) => (a.cost <= b.cost ? a : b)) : null;
 
 // Open the finder; observe the loading state, then the results.
 await page.evaluate(() => document.getElementById('finder-open').click());
@@ -129,13 +132,14 @@ check(
   cards.values[2]
 );
 
-// The trucks-only fact moved to the caption.
+// The trucks-only fact lives in the caption, priced with overtime.
 const captionText = await page.evaluate(() => document.querySelector('.finder-caption')?.textContent || '');
-const trucksOnly = workable.filter((r) => r.m[1] === 0 && r.m[2] === 0);
+const trucksOnly = covered.filter((r) => r.m[1] === 0 && r.m[2] === 0);
 check(
   trucksOnly.length ? captionText.includes('box-trucks-only plan runs') : captionText.includes('box trucks alone'),
   'caption states the box-trucks-only verdict'
 );
+check(captionText.includes('overtime'), 'caption explains the overtime pricing');
 
 // No em dashes anywhere in the modal copy.
 const modalText = await page.evaluate(() => document.querySelector('.finder-card')?.innerText || '');
@@ -200,25 +204,26 @@ const otherPick = await page.evaluate(() => ({
 check(otherPick.text.startsWith(`${otherSize} vehicle`), 'pick bar describes the clicked size', otherPick.text);
 check(otherPick.selectedCol === String(otherSize), 'clicked column is marked selected', otherPick.selectedCol);
 
-// The selected-fleet card follows the click, priced per the independent sweep.
+// The selected-fleet card follows the click, priced per the independent sweep
+// (overtime included; ordering is coverage then cost).
 const bestOfSize = (size) =>
   truth.out
     .filter((r) => r.size === size)
-    .sort(
-      (a, b) =>
-        a.unserved - b.unserved ||
-        (a.maxH <= SHIFT_H ? 0 : 1) - (b.maxH <= SHIFT_H ? 0 : 1) ||
-        a.cost - b.cost
-    )[0];
+    .sort((a, b) => a.unserved - b.unserved || a.cost - b.cost)[0];
 const selCard = await page.evaluate(() => document.getElementById('finder-sel-value')?.textContent);
 check(selCard === fmt(bestOfSize(otherSize).cost), 'selected-fleet card updates with the click', selCard);
 const hrsCard = await page.evaluate(() => ({
   value: document.getElementById('finder-hrs-value')?.textContent,
-  warn: document.getElementById('finder-hrs-sub')?.classList.contains('warn'),
+  sub: document.getElementById('finder-hrs-sub')?.textContent,
 }));
 const otherBest = bestOfSize(otherSize);
 check(hrsCard.value === `${otherBest.maxH.toFixed(1)} h`, 'longest-route card updates with the click', hrsCard.value);
-check(hrsCard.warn === otherBest.maxH > SHIFT_H, 'longest-route verdict matches the shift', `warn=${hrsCard.warn}`);
+check(
+  hrsCard.sub ===
+    (otherBest.otH > 0 ? `${otherBest.otH.toFixed(1)} h total overtime` : `fits the ${SHIFT_H} h shift`),
+  'longest-route card prices the overtime',
+  hrsCard.sub
+);
 
 // The pick bar justifies the winner against its same-size rivals.
 const why = await page.evaluate(() => document.querySelector('.finder-pick-why')?.textContent || '');

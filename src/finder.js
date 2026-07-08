@@ -18,6 +18,7 @@ import {
   buildFleet,
   fleetCost,
   planMaxHours,
+  planOvertimeHours,
   formatMoney,
 } from './config.js';
 import { finderChartSVG } from './charts.js';
@@ -54,11 +55,10 @@ export function mixWords(counts) {
   return parts.join(' + ');
 }
 
-// Plan ordering: coverage first, then shift feasibility, then dollars. A plan
-// that serves every station beats any that doesn't; a plan whose routes all
-// fit the overnight shift beats one that needs an impossible route; only then
-// do dollars decide.
-const better = (a, b) => a.unserved - b.unserved || a.fits - b.fits || a.cost - b.cost;
+// Plan ordering: coverage first, then dollars. A plan that serves every
+// station beats any that doesn't, however cheap; among full-coverage plans
+// the cost decides, and overtime is already priced into that cost.
+const better = (a, b) => a.unserved - b.unserved || a.cost - b.cost;
 
 // initFinder wires the open button + overlay. Dependencies are injected so this
 // stays decoupled from app state:
@@ -97,14 +97,13 @@ export function initFinder({ solve, getContext, onApply }) {
       const counts = mixes[i];
       const fleet = buildFleet(counts);
       const r = await solve({ depot, fleet: fleet.map((t) => t.capacity) });
-      const maxHours = planMaxHours(fleet, r.metrics.perTruck);
       results.push({
         counts,
         size: sizeOf(counts),
-        cost: fleetCost(fleet, r.metrics.perTruck),
+        cost: fleetCost(fleet, r.metrics.perTruck), // overtime included
         unserved: r.metrics.unsatisfied,
-        maxHours,
-        fits: maxHours <= SHIFT.hours ? 0 : 1, // 0 = fits (sorts first)
+        maxHours: planMaxHours(fleet, r.metrics.perTruck),
+        otHours: planOvertimeHours(fleet, r.metrics.perTruck),
         distance: r.metrics.totalDistance,
       });
     }
@@ -130,14 +129,14 @@ export function initFinder({ solve, getContext, onApply }) {
     }
     const points = [...bestAt.values()].sort((a, b) => a.size - b.size);
 
-    // The recommendation: cheapest plan that serves every station AND whose
-    // every route fits the overnight shift.
-    const workable = results.filter((r) => r.unserved === 0 && r.fits === 0);
-    const recommended = workable.length ? workable.reduce((a, b) => (better(a, b) <= 0 ? a : b)) : null;
+    // The recommendation: cheapest plan that serves every station, with
+    // overtime already priced into the cost.
+    const covered = results.filter((r) => r.unserved === 0);
+    const recommended = covered.length ? covered.reduce((a, b) => (better(a, b) <= 0 ? a : b)) : null;
 
     // The box-trucks-only comparison lives in the caption (a fixed fact, not a
-    // stat card — the second card tracks whatever column is selected).
-    const trucksOnly = workable.filter((r) => r.size === (r.counts.truck || 0));
+    // stat card; the second card tracks whatever column is selected).
+    const trucksOnly = covered.filter((r) => r.size === (r.counts.truck || 0));
     const bestTrucksOnly = trucksOnly.length
       ? trucksOnly.reduce((a, b) => (better(a, b) <= 0 ? a : b))
       : null;
@@ -145,12 +144,12 @@ export function initFinder({ solve, getContext, onApply }) {
     body.innerHTML = `
       <div class="finder-cards">
         <div class="finder-card-stat">
-          <span class="finder-stat-label">Cheapest workable fleet</span>
+          <span class="finder-stat-label">Cheapest full-coverage fleet</span>
           <span class="finder-stat-value">${recommended ? formatMoney(recommended.cost) : '—'}</span>
           <span class="finder-stat-sub">${
             recommended
               ? mixWords(recommended.counts)
-              : `no mix of 1–${FLEET_MAX_TOTAL} vehicles serves every station within the shift`
+              : `no mix of 1–${FLEET_MAX_TOTAL} vehicles serves every station`
           }</span>
         </div>
         <div class="finder-card-stat">
@@ -206,28 +205,24 @@ export function initFinder({ solve, getContext, onApply }) {
     const whyPick = (pick) => {
       const rivals = results.filter((r) => r.size === pick.size && r !== pick);
       const n = rivals.length + 1;
-      if (pick.unserved > 0 || pick.fits !== 0) {
-        const reason =
-          pick.unserved > 0
-            ? 'this one comes closest'
-            : `this one serves every station but its longest route runs ${pick.maxHours.toFixed(1)} h`;
-        return `All ${n} possible ${pick.size}-vehicle mixes were solved; none is workable, and ${reason}.`;
+      if (pick.unserved > 0) {
+        return `All ${n} possible ${pick.size}-vehicle mixes were solved; none serves every station, and this one strands the fewest.`;
       }
       const parts = [
-        `All ${n} possible ${pick.size}-vehicle mixes were solved; this is the cheapest that serves every station within the shift.`,
+        `All ${n} possible ${pick.size}-vehicle mixes were solved; this is the cheapest that serves every station, overtime included.`,
       ];
-      const nextBest = rivals
-        .filter((r) => r.unserved === 0 && r.fits === 0)
-        .sort((a, b) => a.cost - b.cost)[0];
+      const nextBest = rivals.filter((r) => r.unserved === 0).sort((a, b) => a.cost - b.cost)[0];
       if (nextBest) parts.push(`Next best: ${mixWords(nextBest.counts)} at ${formatMoney(nextBest.cost)}.`);
-      const cheaper = rivals.filter((r) => r.cost < pick.cost - 0.5).sort((a, b) => a.cost - b.cost)[0];
+      // Anything cheaper than a full-coverage winner must be stranding
+      // stations (overtime is already in the price).
+      const cheaper = rivals
+        .filter((r) => r.unserved > 0 && r.cost < pick.cost - 0.5)
+        .sort((a, b) => a.cost - b.cost)[0];
       if (cheaper) {
-        const flaw =
-          cheaper.unserved > 0
-            ? `leaves ${cheaper.unserved} station${cheaper.unserved === 1 ? '' : 's'} unserved`
-            : `needs a ${cheaper.maxHours.toFixed(1)} h route`;
         parts.push(
-          `${mixWords(cheaper.counts)} would save ${formatMoney(pick.cost - cheaper.cost)} but ${flaw}.`
+          `${mixWords(cheaper.counts)} would save ${formatMoney(pick.cost - cheaper.cost)} but leaves ${
+            cheaper.unserved
+          } station${cheaper.unserved === 1 ? '' : 's'} unserved.`
         );
       }
       return parts.join(' ');
@@ -242,25 +237,27 @@ export function initFinder({ solve, getContext, onApply }) {
         pickEl.innerHTML = '';
         return;
       }
-      const workable = pick.unserved === 0 && pick.fits === 0;
-      const coverage = pick.unserved === 0 ? 'full coverage' : `${pick.unserved} stations unserved`;
+      const coveredPick = pick.unserved === 0;
+      const coverage = coveredPick ? 'full coverage' : `${pick.unserved} stations unserved`;
       const shiftNote = `longest route ${pick.maxHours.toFixed(1)} h${
-        pick.fits === 0 ? '' : ` (over the ${SHIFT.hours} h shift)`
+        pick.otHours > 0 ? ` · ${pick.otHours.toFixed(1)} h overtime` : ''
       }`;
 
       // Cards two and three track the selection for at-a-glance comparison
       // against the recommendation in card one. Colors follow the chart's
-      // series: teal means dollars, orange means hours.
+      // series: teal means dollars, orange means hours. Overtime is a price,
+      // not a failure, so it reads as information rather than a warning.
       selLabel.textContent =
         recommended && pick.size === recommended.size ? 'Selected fleet (the recommendation)' : 'Selected fleet';
       selValue.textContent = formatMoney(pick.cost);
       selSub.textContent = `${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${coverage}`;
       hrsValue.textContent = `${pick.maxHours.toFixed(1)} h`;
-      hrsSub.textContent = pick.fits === 0 ? `fits the ${SHIFT.hours} h shift` : `⚠ over the ${SHIFT.hours} h shift`;
-      hrsSub.classList.toggle('warn', pick.fits !== 0);
+      hrsSub.textContent =
+        pick.otHours > 0 ? `${pick.otHours.toFixed(1)} h total overtime` : `fits the ${SHIFT.hours} h shift`;
+      hrsSub.classList.remove('warn');
 
       pickEl.innerHTML = `
-        <div class="finder-pick-info${workable ? '' : ' warn'}">
+        <div class="finder-pick-info${coveredPick ? '' : ' warn'}">
           <strong>${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${mixWords(pick.counts)}</strong>
           <span class="finder-pick-stats">${formatMoney(pick.cost)} · ${coverage} · ${shiftNote}</span>
           <span class="finder-pick-why">${whyPick(pick)}</span>
@@ -285,17 +282,14 @@ export function initFinder({ solve, getContext, onApply }) {
   }
 
   function captionFor(mixCount, recommended, bestTrucksOnly) {
-    const cap = `Every point is the best of ${mixCount} solved fleet mixes at that size (up to 4 of each type, ${FLEET_MAX_TOTAL} vehicles total), judged by coverage first, then the ${SHIFT.hours}-hour overnight shift, then dollars. `;
+    const cap = `Every point is the best of ${mixCount} solved fleet mixes at that size (up to 4 of each type, ${FLEET_MAX_TOTAL} vehicles total), judged by coverage first, then total cost. Hours past the ${SHIFT.hours}-hour overnight shift bill as overtime, so a small fleet driving all night prices itself out. `;
     if (!recommended) {
-      return cap + `Nothing up to ${FLEET_MAX_TOTAL} vehicles serves every station within the shift; the dashed line shows how far over each size runs.`;
+      return cap + `Nothing up to ${FLEET_MAX_TOTAL} vehicles serves every station; the dashed line shows each size's longest route.`;
     }
     const trucksNote = bestTrucksOnly
       ? `The cheapest box-trucks-only plan runs ${formatMoney(bestTrucksOnly.cost)}.`
-      : `No fleet of box trucks alone finishes within the shift.`;
-    return (
-      cap +
-      `Small fleets are cheap on paper but their routes blow past the shift line. ${trucksNote} Click a column to preview that size's best mix.`
-    );
+      : `No fleet of box trucks alone serves every station.`;
+    return cap + `${trucksNote} Click a column to preview that size's best mix.`;
   }
 
   function loadingHTML(total) {
