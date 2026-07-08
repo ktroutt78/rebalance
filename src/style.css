@@ -234,6 +234,22 @@ input[type='range'] {
   color: var(--text);
   display: flex;
   align-items: center;
+  cursor: pointer;
+  padding: 2px 6px 2px 4px;
+  margin: -2px 0 -2px -4px;
+  border-radius: 5px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.fleet-name:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+.fleet-row.highlighted .fleet-name {
+  color: var(--accent);
+  background: rgba(76, 201, 176, 0.12);
+}
+.fleet-row.highlighted .vdot {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(76, 201, 176, 0.25);
 }
 .fleet-name small {
   color: var(--text-dim);

@@ -23,6 +23,7 @@ import {
 import {
   initFleetControls,
   setFleetCounts,
+  setFleetHighlight,
   initSpeedControl,
   initPlayToggle,
   renderMetrics,
@@ -51,6 +52,7 @@ const state = {
   depot: { ...DEFAULT_DEPOT },
   fleet: { ...DEFAULT_FLEET }, // per-type counts from the steppers
   fleetTypes: buildFleet(DEFAULT_FLEET), // per-vehicle type list, aligned to truckIndex
+  highlightType: null, // vehicle-type spotlight (click a type name in the fleet panel)
   speed: ANIM.defaultSpeed,
   playing: true, // transport state: animation clock advances only while true
   scrubbing: false, // true while the user drags the load-chart scrubber (Stage 4)
@@ -117,7 +119,11 @@ async function boot() {
   state.solver.init(state.stations, matrix);
 
   // --- controls ---
-  state.fleet = initFleetControls({ counts: state.fleet, onChange: onFleetChange });
+  state.fleet = initFleetControls({
+    counts: state.fleet,
+    onChange: onFleetChange,
+    onHighlight: setTypeHighlight, // click a type name → spotlight that fleet on the map
+  });
 
   // --- animation speed ---
   state.speed = initSpeedControl({ onChange: (s) => (state.speed = s), initial: state.speed });
@@ -177,6 +183,16 @@ function applyFleet(counts) {
   resolve();
 }
 
+// Toggle the vehicle-type spotlight. It replaces any focused vehicle/station
+// (a spotlight is a wider question than a single focus), and focusing anything
+// afterwards hands emphasis back to the selection spine (onSelectionChange).
+function setTypeHighlight(typeId) {
+  const next = state.highlightType === typeId ? null : typeId;
+  if (next) clearSelection();
+  state.highlightType = next;
+  setFleetHighlight(next);
+}
+
 // Solve with the current depot + fleet. Coalesces overlapping requests.
 async function resolve() {
   if (state.solving) {
@@ -210,6 +226,11 @@ async function resolve() {
 
 // Single subscriber: keep the legend + panel in lockstep with the selection.
 function onSelectionChange(sel) {
+  // A real selection takes over from the type spotlight.
+  if ((sel.truckIdx != null || sel.stationIdx != null) && state.highlightType) {
+    state.highlightType = null;
+    setFleetHighlight(null);
+  }
   highlightFocusedTruck(sel.truckIdx);
   renderPanel(sel, panelContext());
   updateCamera(sel);
@@ -319,6 +340,10 @@ function onDeckClick(info) {
     /* depot is a separate marker; ignore */
   } else {
     clearSelection();
+    if (state.highlightType) {
+      state.highlightType = null;
+      setFleetHighlight(null);
+    }
   }
 }
 
@@ -360,6 +385,10 @@ function startAnimation() {
     const sel = getSelection();
     const focus = {
       focusedTruck: sel.truckIdx,
+      // Emphasis set: the focused vehicle, or every vehicle of the highlighted
+      // type (fleet-panel spotlight). Layers ghost everything outside the set.
+      activeTrucks: sel.truckIdx != null ? new Set([sel.truckIdx]) : highlightedTruckSet(),
+      typeHighlight: sel.truckIdx == null ? state.highlightType : null,
       selectedStation: sel.stationIdx,
       stationToTruck: state.stationToTruck,
       hoveredStation: state.hoveredStation,
@@ -410,6 +439,16 @@ function startAnimation() {
   requestAnimationFrame(frame);
 }
 
+// Truck indices of the spotlighted vehicle type, or null when no spotlight.
+function highlightedTruckSet() {
+  if (!state.highlightType) return null;
+  const s = new Set();
+  state.fleetTypes.forEach((t, i) => {
+    if (t.id === state.highlightType) s.add(i);
+  });
+  return s.size ? s : null;
+}
+
 // Largest stop index the truck has reached at time t (the stop it's at/departing).
 function currentStopIndex(stopTimes, t) {
   let i = 0;
@@ -436,6 +475,11 @@ function exposeDebugHooks() {
     fleet: () => ({ ...state.fleet }),
     fleetTypes: () => state.fleetTypes.map((t) => t.id),
     capacityOf: (t) => state.fleetTypes[t]?.capacity ?? null,
+    // Vehicle-type spotlight (fleet-panel type-name click): current type id,
+    // its truck indices, and a driver so tests can toggle it directly.
+    highlightType: () => state.highlightType,
+    highlightedTrucks: () => [...(highlightedTruckSet() ?? [])],
+    setTypeHighlight,
     stationToTruck: () => state.stationToTruck,
     unserved: () => [...state.unservedIdxs],
     // Pan/zoom the map to a station (used by screenshot tooling to frame the

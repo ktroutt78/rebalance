@@ -18,16 +18,18 @@ const totalOf = (counts) => VEHICLE_TYPES.reduce((s, t) => s + (counts[t.id] || 
 // Per-type steppers (one row per vehicle type). onChange(counts) fires on every
 // click with a fresh counts object; main.js debounces the re-solve. Bounds:
 // each type 0..type.max, whole fleet 1..FLEET_MAX_TOTAL (never empty — the map
-// must always show a solved state).
+// must always show a solved state). Clicking a type NAME fires
+// onHighlight(typeId) — the map spotlight for that whole vehicle type.
 let fleetState = null; // { counts, render } — kept so the finder can sync us
-export function initFleetControls({ counts, onChange }) {
+export function initFleetControls({ counts, onChange, onHighlight }) {
   const wrap = $('fleet-controls');
   const current = { ...counts };
 
   wrap.innerHTML = VEHICLE_TYPES.map(
     (t) => `
       <div class="fleet-row" data-type="${t.id}">
-        <span class="fleet-name"><i class="vdot ${t.id}"></i>${t.name} <small>· ${t.capacity} bikes</small></span>
+        <span class="fleet-name" role="button" tabindex="0" aria-pressed="false"
+          title="Highlight every ${t.name.toLowerCase()} on the map"><i class="vdot ${t.id}"></i>${t.name} <small>· ${t.capacity} bikes</small></span>
         <span class="fleet-stepper">
           <button type="button" class="fleet-btn" data-delta="-1" aria-label="Fewer: ${t.name}">−</button>
           <strong class="fleet-count" data-count="${t.id}">0</strong>
@@ -50,16 +52,37 @@ export function initFleetControls({ counts, onChange }) {
 
   wrap.addEventListener('click', (e) => {
     const btn = e.target.closest('.fleet-btn');
-    if (!btn || btn.disabled) return;
-    const typeId = btn.closest('.fleet-row').dataset.type;
-    current[typeId] = (current[typeId] || 0) + Number(btn.dataset.delta);
-    render();
-    onChange({ ...current });
+    if (btn) {
+      if (btn.disabled) return;
+      const typeId = btn.closest('.fleet-row').dataset.type;
+      current[typeId] = (current[typeId] || 0) + Number(btn.dataset.delta);
+      render();
+      onChange({ ...current });
+      return;
+    }
+    const name = e.target.closest('.fleet-name');
+    if (name && onHighlight) onHighlight(name.closest('.fleet-row').dataset.type);
+  });
+  wrap.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const name = e.target.closest('.fleet-name');
+    if (!name || !onHighlight) return;
+    e.preventDefault();
+    onHighlight(name.closest('.fleet-row').dataset.type);
   });
 
   render();
   fleetState = { counts: current, render };
   return { ...current };
+}
+
+// Reflect the type spotlight back onto the fleet rows (null clears all).
+export function setFleetHighlight(typeId) {
+  document.querySelectorAll('#fleet-controls .fleet-row').forEach((row) => {
+    const on = row.dataset.type === typeId;
+    row.classList.toggle('highlighted', on);
+    row.querySelector('.fleet-name')?.setAttribute('aria-pressed', String(on));
+  });
 }
 
 // Sync the steppers to counts chosen elsewhere (the fleet finder's apply).

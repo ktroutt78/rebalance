@@ -15,11 +15,24 @@ const truckColor = (i) => TRUCK_COLORS[i % TRUCK_COLORS.length];
 const EMPTY_SET = new Set();
 const NO_FOCUS = {
   focusedTruck: null,
+  activeTrucks: null, // Set of emphasized truck indices: single focus OR a whole highlighted type
+  typeHighlight: null,
   selectedStation: null,
   stationToTruck: new Map(),
   hoveredStation: null,
   unservedStations: EMPTY_SET,
 };
+
+// The emphasis set: a focused vehicle is a set of one; a highlighted TYPE
+// (click "Box truck" in the fleet panel) is a set of several. Layers treat
+// both identically — members render full, the rest ghost.
+const activeSetOf = (focus) => {
+  const s = focus.activeTrucks;
+  return s && s.size > 0 ? s : null;
+};
+// Stable updateTriggers key for accessors that depend on the emphasis set.
+const focusKeyOf = (focus) =>
+  focus.focusedTruck != null ? `t${focus.focusedTruck}` : focus.typeHighlight || '';
 
 function haversine(aLng, aLat, bLng, bLat) {
   const R = 6371000;
@@ -121,25 +134,39 @@ const baseDemandColor = (s) =>
 // --- Stations: diverging color (surplus blue / deficit red), tamed size + alpha,
 // focus-aware emphasis. The selected station gets a bold white ring. ---
 export function stationLayer(stations, focus = NO_FOCUS) {
-  const { focusedTruck, selectedStation, stationToTruck, hoveredStation } = focus;
+  const { selectedStation, stationToTruck, hoveredStation } = focus;
   const unserved = focus.unservedStations || EMPTY_SET;
-  const hasFocus = focusedTruck != null;
-  const isFocusedStop = (s) => hasFocus && stationToTruck.get(s.idx) === focusedTruck;
+  const active = activeSetOf(focus);
+  const hasFocus = active != null;
+  // A TYPE spotlight can cover most of the map — boosting its stations to full
+  // alpha turns midtown into a blob that buries the routes. So: single-vehicle
+  // focus BOOSTS that route's stops; a type spotlight leaves member stations at
+  // their normal look and only GHOSTS the rest — the brightened, thickened
+  // routes carry the emphasis.
+  const isTypeSpotlight = focus.typeHighlight != null;
+  const isFocusedStop = (s) => hasFocus && active.has(stationToTruck.get(s.idx));
   const isUnserved = (s) => unserved.has(s.idx);
+  const trig = focusKeyOf(focus);
 
   const radiusOf = (s) => {
     let r = MARKER.base + MARKER.scale * Math.pow(Math.abs(s.demand), MARKER.exp);
     if (s.idx === selectedStation) r *= MARKER.selectGrow;
     else if (s.idx === hoveredStation) r *= MARKER.focusGrow;
     else if (isUnserved(s)) r *= MARKER.focusGrow; // missed stations stay noticeable
-    else if (isFocusedStop(s)) r *= MARKER.focusGrow;
+    else if (isFocusedStop(s) && !isTypeSpotlight) r *= MARKER.focusGrow;
     return r;
   };
 
   const fillOf = (s) => {
     const col = baseDemandColor(s);
     let a = MARKER.fillAlpha;
-    if (hasFocus) a = isFocusedStop(s) ? MARKER.focusAlpha : MARKER.ghostAlpha;
+    if (hasFocus) {
+      a = isFocusedStop(s)
+        ? isTypeSpotlight
+          ? MARKER.fillAlpha // spotlight members keep the normal look
+          : MARKER.focusAlpha // a single focused route's stops boost
+        : MARKER.ghostAlpha;
+    }
     // Unserved: hollow/muted fill so it reads as an outlined "miss", but never
     // fully hidden by focus ghosting — these are the stations the story is about.
     if (isUnserved(s)) a = Math.max(a, 45);
@@ -153,7 +180,10 @@ export function stationLayer(stations, focus = NO_FOCUS) {
     if (s.idx === hoveredStation) return [255, 255, 255, 210];
     // Warn-orange ring marks an unserved station (ties to the ⚠ status text).
     if (isUnserved(s)) return [...COLOR.unserved, 240];
-    if (hasFocus) return isFocusedStop(s) ? [255, 255, 255, 150] : [255, 255, 255, 18];
+    if (hasFocus) {
+      if (!isFocusedStop(s)) return [255, 255, 255, 18];
+      return [255, 255, 255, isTypeSpotlight ? 55 : 150];
+    }
     return [255, 255, 255, 55];
   };
 
@@ -174,9 +204,9 @@ export function stationLayer(stations, focus = NO_FOCUS) {
     stroked: true,
     pickable: true,
     updateTriggers: {
-      getFillColor: [focusedTruck, selectedStation, hoveredStation, unserved],
-      getRadius: [focusedTruck, selectedStation, hoveredStation, unserved],
-      getLineColor: [focusedTruck, selectedStation, hoveredStation, unserved],
+      getFillColor: [trig, selectedStation, hoveredStation, unserved],
+      getRadius: [trig, selectedStation, hoveredStation, unserved],
+      getLineColor: [trig, selectedStation, hoveredStation, unserved],
       getLineWidth: [selectedStation, hoveredStation, unserved],
     },
   });
@@ -186,14 +216,15 @@ export function stationLayer(stations, focus = NO_FOCUS) {
 // geometry the trail animates along (so line + trail + truck stay aligned). The
 // arcs are a drawing choice; the optimizer still solves on straight-line distance. ---
 export function routeLineLayer(model, focus = NO_FOCUS) {
-  const { focusedTruck } = focus;
-  const hasFocus = focusedTruck != null;
+  const active = activeSetOf(focus);
+  const hasFocus = active != null;
+  const trig = focusKeyOf(focus);
   // Skinnier + slightly muted: ease each channel toward mid-grey and lower alpha
   // so routes stay traceable and per-truck distinguishable, but recede behind the
   // saturated blue/red station dots (truck identity now lives in the numbered marker).
   const mute = (c) => Math.round(c * 0.82 + 150 * 0.18);
   const colorOf = (d) => {
-    const a = !hasFocus ? 125 : d.truckIndex === focusedTruck ? 205 : 30;
+    const a = !hasFocus ? 125 : active.has(d.truckIndex) ? 205 : 30;
     return [mute(d.color[0]), mute(d.color[1]), mute(d.color[2]), a];
   };
   // Line weight encodes vehicle type (box truck heavy → trailer hairline), but
@@ -205,25 +236,29 @@ export function routeLineLayer(model, focus = NO_FOCUS) {
     data: model,
     getPath: (d) => d.path,
     getColor: colorOf,
-    getWidth: (d) => (hasFocus && d.truckIndex === focusedTruck ? baseWidth(d) * 1.6 : baseWidth(d)),
+    // Emphasized routes get a hard FLOOR: a focused trailer's hairline must
+    // still be traceable across long hops between stops. Type-scaled thinness
+    // is for the background fleet only.
+    getWidth: (d) => (hasFocus && active.has(d.truckIndex) ? Math.max(2.2, baseWidth(d) * 1.6) : baseWidth(d)),
     widthUnits: 'pixels',
     widthMinPixels: 0.4,
     capRounded: true,
     jointRounded: true,
     parameters: { depthTest: false },
     updateTriggers: {
-      getColor: [focusedTruck],
-      getWidth: [focusedTruck],
+      getColor: [trig],
+      getWidth: [trig],
     },
   });
 }
 
 // --- Animated trail behind each truck (non-focused ghosted but still moving) ---
 export function tripsLayer(model, currentTime, focus = NO_FOCUS) {
-  const { focusedTruck } = focus;
-  const hasFocus = focusedTruck != null;
+  const active = activeSetOf(focus);
+  const hasFocus = active != null;
+  const trig = focusKeyOf(focus);
   const colorOf = (d) => {
-    const a = !hasFocus ? 230 : d.truckIndex === focusedTruck ? 255 : 38;
+    const a = !hasFocus ? 230 : active.has(d.truckIndex) ? 255 : 38;
     return [d.color[0], d.color[1], d.color[2], a];
   };
   return new TripsLayer({
@@ -241,7 +276,7 @@ export function tripsLayer(model, currentTime, focus = NO_FOCUS) {
     capRounded: true,
     trailLength: ANIM.trailLength,
     currentTime,
-    updateTriggers: { getColor: [focusedTruck] },
+    updateTriggers: { getColor: [trig] },
   });
 }
 
@@ -293,9 +328,9 @@ function vehicleIcon(color) {
 }
 
 export function truckMarkerLayer(model, currentTime, focus = NO_FOCUS) {
-  const { focusedTruck } = focus;
-  const hasFocus = focusedTruck != null;
-  const dim = (d) => hasFocus && d.truckIndex !== focusedTruck;
+  const active = activeSetOf(focus);
+  const hasFocus = active != null;
+  const dim = (d) => hasFocus && !active.has(d.truckIndex);
   const trucks = sampleTrucks(model, currentTime);
   return new IconLayer({
     id: 'trucks',
@@ -308,16 +343,16 @@ export function truckMarkerLayer(model, currentTime, focus = NO_FOCUS) {
     // non-focused fleet without repainting the badge).
     getColor: (d) => [255, 255, 255, dim(d) ? 80 : 255],
     parameters: { depthTest: false },
-    updateTriggers: { getColor: [focusedTruck] },
+    updateTriggers: { getColor: [focusKeyOf(focus)] },
   });
 }
 
 // --- Truck number sitting inside the white marker (1, 2, 3…). Dark text on the
 // white dot; dims with the marker when another truck is focused. ---
 export function truckNumberLayer(model, currentTime, focus = NO_FOCUS) {
-  const { focusedTruck } = focus;
-  const hasFocus = focusedTruck != null;
-  const dim = (d) => hasFocus && d.truckIndex !== focusedTruck;
+  const active = activeSetOf(focus);
+  const hasFocus = active != null;
+  const dim = (d) => hasFocus && !active.has(d.truckIndex);
   const trucks = sampleTrucks(model, currentTime);
   return new TextLayer({
     id: 'truck-numbers',
@@ -333,7 +368,7 @@ export function truckNumberLayer(model, currentTime, focus = NO_FOCUS) {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     fontWeight: 700,
     parameters: { depthTest: false },
-    updateTriggers: { getColor: [focusedTruck] },
+    updateTriggers: { getColor: [focusKeyOf(focus)] },
   });
 }
 
