@@ -7,7 +7,7 @@
 // stops brought forward; everything else ghosts to ~0.15 (never hidden) but
 // keeps animating. The selected station is highlighted distinctly on top.
 
-import { ScatterplotLayer, PathLayer, TextLayer } from '@deck.gl/layers';
+import { ScatterplotLayer, PathLayer, TextLayer, IconLayer } from '@deck.gl/layers';
 import { TripsLayer } from '@deck.gl/geo-layers';
 import { COLOR, TRUCK_COLORS, ANIM, MARKER, ROUTE_ARC, TRUCK_MARKER_RADIUS } from './config.js';
 
@@ -196,16 +196,18 @@ export function routeLineLayer(model, focus = NO_FOCUS) {
     const a = !hasFocus ? 125 : d.truckIndex === focusedTruck ? 205 : 30;
     return [mute(d.color[0]), mute(d.color[1]), mute(d.color[2]), a];
   };
-  // Line weight encodes vehicle type (box truck heavy → trailer hairline).
-  const baseWidth = (d) => d.vehicle?.routeWidth ?? 1.0;
+  // Line weight encodes vehicle type (box truck heavy → trailer hairline), but
+  // stays deliberately thin throughout: the line is only the visit ORDER — the
+  // stations and the moving vehicle are the story, the line just connects them.
+  const baseWidth = (d) => d.vehicle?.routeWidth ?? 0.7;
   return new PathLayer({
     id: 'routes',
     data: model,
     getPath: (d) => d.path,
     getColor: colorOf,
-    getWidth: (d) => (hasFocus && d.truckIndex === focusedTruck ? baseWidth(d) * 1.9 : baseWidth(d)),
+    getWidth: (d) => (hasFocus && d.truckIndex === focusedTruck ? baseWidth(d) * 1.6 : baseWidth(d)),
     widthUnits: 'pixels',
-    widthMinPixels: 0.5,
+    widthMinPixels: 0.4,
     capRounded: true,
     jointRounded: true,
     parameters: { depthTest: false },
@@ -266,35 +268,47 @@ export function sampleTrucks(model, currentTime) {
   return out;
 }
 
-// --- Moving vehicle marker: a small WHITE dot with a thin colored ring (route
-// color) and the vehicle number inside (truckNumberLayer). Radius encodes the
-// VEHICLE TYPE (box truck > van > trailer), fixed per vehicle at all times — it
-// carries identity + type, never load. Non-focused vehicles dim but keep
+// --- Moving vehicle marker: a WHITE rounded SQUARE with a colored ring (route
+// color) and the vehicle number inside (truckNumberLayer). Shape separates the
+// moving fleet from the circular stations at a glance; size encodes the
+// VEHICLE TYPE (box truck > van > trailer), fixed per vehicle at all times —
+// it carries identity + type, never load. Non-focused vehicles dim but keep
 // moving. The ring is the color tie-back to the route. ---
 const markerRadiusOf = (d) => d.vehicle?.radius ?? TRUCK_MARKER_RADIUS;
+
+// Rounded-square badge as an inline SVG data URL, cached per route color.
+const iconCache = new Map();
+function vehicleIcon(color) {
+  const key = color.join(',');
+  let icon = iconCache.get(key);
+  if (!icon) {
+    const svg =
+      `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">` +
+      `<rect x="5" y="5" width="54" height="54" rx="15" fill="#ffffff" stroke="rgb(${key})" stroke-width="8"/>` +
+      `</svg>`;
+    icon = { url: `data:image/svg+xml;base64,${btoa(svg)}`, width: 64, height: 64, id: `veh-${key}` };
+    iconCache.set(key, icon);
+  }
+  return icon;
+}
 
 export function truckMarkerLayer(model, currentTime, focus = NO_FOCUS) {
   const { focusedTruck } = focus;
   const hasFocus = focusedTruck != null;
   const dim = (d) => hasFocus && d.truckIndex !== focusedTruck;
   const trucks = sampleTrucks(model, currentTime);
-  return new ScatterplotLayer({
+  return new IconLayer({
     id: 'trucks',
     data: trucks,
     getPosition: (d) => d.position,
-    getFillColor: (d) => [255, 255, 255, dim(d) ? 70 : 245], // white dot
-    getLineColor: (d) => [d.color[0], d.color[1], d.color[2], dim(d) ? 90 : 255], // route-color ring
-    getRadius: markerRadiusOf,
-    radiusUnits: 'pixels',
-    radiusMinPixels: 5,
-    stroked: true,
-    getLineWidth: 2,
-    lineWidthUnits: 'pixels',
-    lineWidthMinPixels: 2,
-    updateTriggers: {
-      getFillColor: [focusedTruck],
-      getLineColor: [focusedTruck],
-    },
+    getIcon: (d) => vehicleIcon(d.color),
+    getSize: (d) => markerRadiusOf(d) * 2,
+    sizeUnits: 'pixels',
+    // Non-masked icons keep their own colors; only alpha applies (dims the
+    // non-focused fleet without repainting the badge).
+    getColor: (d) => [255, 255, 255, dim(d) ? 80 : 255],
+    parameters: { depthTest: false },
+    updateTriggers: { getColor: [focusedTruck] },
   });
 }
 
@@ -337,13 +351,16 @@ export function truckLoadLabelLayer(model, currentTime, capacity, focus = NO_FOC
   if (!truck || !tModel) return null;
   const sl = tModel.stopLoads;
   const load = sl && stopIndex >= 0 && stopIndex < sl.length ? sl[stopIndex] : truck.load;
-  // Sit the chip just clear of this vehicle's own marker size.
+  // Sit the chip just clear of this vehicle's own marker size. Naming the type
+  // on the chip answers "what's servicing this?" without leaving the map.
   const radius = markerRadiusOf(truck);
+  const typeTag = tModel.vehicle ? ` · ${tModel.vehicle.short}` : '';
   return new TextLayer({
     id: 'truck-load',
     data: [truck],
     getPosition: (d) => d.position,
-    getText: () => `${load}/${capacity}`,
+    getText: () => `${load}/${capacity}${typeTag}`,
+    characterSet: 'auto', // the '·' separator sits outside the default ASCII set
     getColor: [255, 255, 255, 255],
     getSize: 13,
     sizeUnits: 'pixels',

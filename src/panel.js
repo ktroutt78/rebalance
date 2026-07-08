@@ -54,7 +54,7 @@ export function renderPanel(sel, ctx) {
   const selected = station != null || truckIdx != null;
 
   const header = station
-    ? stationHeader(station, truckIdx)
+    ? stationHeader(station, truckIdx, ctx)
     : truckIdx != null
     ? truckHeader(truckIdx, route, ctx)
     : systemHeader(ctx);
@@ -65,12 +65,17 @@ export function renderPanel(sel, ctx) {
   //   TRUCK FOCUSED    → truck load profile + the ranking brought BACK (the view has
   //                      room and the ranking adds context; bars stay clickable).
   //   DEFAULT          → system net-flow + ranking (the hero).
+  // Name the serving vehicle's TYPE wherever the vehicle appears — a viewer on
+  // the station view must not need the left legend to know truck vs trailer.
+  const typeOf = (t) => (ctx.fleetTypes && ctx.fleetTypes[t] ? ctx.fleetTypes[t].name : null);
+  const vehicleLabel = (t) => `Vehicle ${t + 1}${typeOf(t) ? ` · ${typeOf(t)}` : ''}`;
+
   const blocks = [];
   if (station) {
     blocks.push(block('Net flow by hour', 'a-hourly', 'a-chart'));
-    if (route) blocks.push(block(`Load profile · Vehicle ${truckIdx + 1}`, 'a-load', 'a-load-chart'));
+    if (route) blocks.push(block(`Load profile · ${vehicleLabel(truckIdx)}`, 'a-load', 'a-load-chart'));
   } else if (truckIdx != null) {
-    if (route) blocks.push(block(`Load profile · Vehicle ${truckIdx + 1}`, 'a-load', 'a-load-chart'));
+    if (route) blocks.push(block(`Load profile · ${vehicleLabel(truckIdx)}`, 'a-load', 'a-load-chart'));
     blocks.push(block('Most imbalanced', 'a-rank', 'a-rank'));
   } else {
     blocks.push(block('Net flow by hour · system', 'a-hourly', 'a-chart'));
@@ -191,12 +196,13 @@ function wireRanking(rankEl, ctx) {
 // ✕ button — the obvious, frictionless way back to the default ranking view.
 const deselectBtn = '<button type="button" class="a-deselect" aria-label="Deselect — back to overview" title="Deselect">✕</button>';
 
-function stationHeader(s, truckIdx) {
+function stationHeader(s, truckIdx, ctx) {
+  const type = truckIdx != null && ctx.fleetTypes ? ctx.fleetTypes[truckIdx] : null;
   const truck =
     truckIdx != null
       ? `<div class="a-truck"><span class="swatch" style="background:${rgb(
           TRUCK_COLORS[truckIdx % TRUCK_COLORS.length]
-        )}"></span>Served by vehicle ${truckIdx + 1}</div>`
+        )}"></span>Served by vehicle ${truckIdx + 1}${type ? ` · ${type.name.toLowerCase()}` : ''}</div>`
       : '';
   return `
     <header class="a-head">

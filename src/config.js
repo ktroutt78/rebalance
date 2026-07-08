@@ -37,9 +37,9 @@ export const C_RANGE = { min: 10, max: 40, default: 30 }; // bikes per truck
 // Fixed per vehicle at all times, so size never reads as load (that stays the
 // load chart's job).
 export const VEHICLE_TYPES = [
-  { id: 'truck', name: 'Box truck', short: 'Truck', capacity: 30, fixedCost: 110, costPerMile: 2.2, max: 4, radius: 11.5, routeWidth: 1.6, trailWidth: 4.5 },
-  { id: 'van', name: 'Cargo van', short: 'Van', capacity: 12, fixedCost: 60, costPerMile: 1.25, max: 4, radius: 9, routeWidth: 1.0, trailWidth: 3 },
-  { id: 'trailer', name: 'Bike trailer', short: 'Trailer', capacity: 3, fixedCost: 20, costPerMile: 0.5, max: 4, radius: 6.5, routeWidth: 0.6, trailWidth: 1.8 },
+  { id: 'truck', name: 'Box truck', short: 'Truck', capacity: 30, fixedCost: 110, costPerMile: 2.2, max: 4, radius: 11.5, routeWidth: 1.35, trailWidth: 4.5 },
+  { id: 'van', name: 'Cargo van', short: 'Van', capacity: 12, fixedCost: 60, costPerMile: 1.25, max: 4, radius: 9, routeWidth: 0.85, trailWidth: 3 },
+  { id: 'trailer', name: 'Bike trailer', short: 'Trailer', capacity: 3, fixedCost: 20, costPerMile: 0.5, max: 4, radius: 6.5, routeWidth: 0.5, trailWidth: 1.8 },
 ];
 export const FLEET_MAX_TOTAL = 8; // one TRUCK_COLORS entry per vehicle
 // Landing state = the fleet finder's own recommendation at the default depot

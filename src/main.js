@@ -379,10 +379,13 @@ function startAnimation() {
     }
 
     overlay.setProps({
+      // Z-order is array order (bottom → top): route lines and trails sit
+      // BEHIND the station dots — a route is just the visit order, it must
+      // never obscure a station — and only the moving vehicles ride on top.
       layers: [
-        stationLayer(state.stations, focus),
         routeLineLayer(state.model, focus),
         tripsLayer(state.model, state.currentTime, focus),
+        stationLayer(state.stations, focus),
         truckMarkerLayer(state.model, state.currentTime, focus),
         truckNumberLayer(state.model, state.currentTime, focus),
         // On-map "load/cap" readout above the focused truck; load snaps to the
@@ -477,10 +480,10 @@ function exposeDebugHooks() {
         hoveredStation: state.hoveredStation,
       };
       const layer = truckMarkerLayer(state.model, state.currentTime, focus);
-      const g = layer.props.getRadius;
-      if (typeof g !== 'function') return g;
+      const g = layer.props.getSize; // square badge: size = radius × 2
+      if (typeof g !== 'function') return g / 2;
       const d = layer.props.data.find((t) => (sel.truckIdx != null ? t.truckIndex === sel.truckIdx : true));
-      return d ? g(d) : null;
+      return d ? g(d) / 2 : null;
     },
     playheadX: () => document.querySelector('#a-load svg .load-playhead')?.getAttribute('x'),
     uiState: () => ({ scrubbing: state.scrubbing, hoveredStation: state.hoveredStation }),

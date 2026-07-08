@@ -32,16 +32,43 @@ body {
   height: 100vh;
 }
 
-/* Draggable depot marker (a maplibre Marker holding this element). */
+/* Draggable depot marker (a maplibre Marker holding this element). Promoted so
+   it never drowns in the station dots: a bigger amber diamond with a strong
+   halo and a small always-on DEPOT tag beneath — the one home base must be
+   findable at a glance by a first-time viewer. */
 .depot-marker {
-  width: 18px;
-  height: 18px;
+  width: 26px;
+  height: 26px;
+  position: relative;
+  cursor: grab;
+}
+.depot-marker::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
   background: var(--depot);
   border: 2px solid #141414;
-  border-radius: 4px;
+  border-radius: 5px;
   transform: rotate(45deg);
-  cursor: grab;
-  box-shadow: 0 0 0 4px rgba(255, 209, 64, 0.25), 0 2px 8px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 5px rgba(255, 209, 64, 0.25), 0 0 18px rgba(255, 209, 64, 0.55),
+    0 2px 10px rgba(0, 0, 0, 0.6);
+}
+.depot-marker::after {
+  content: 'DEPOT';
+  position: absolute;
+  top: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--depot);
+  background: rgba(12, 18, 24, 0.88);
+  border: 1px solid rgba(255, 209, 64, 0.4);
+  border-radius: 4px;
+  padding: 1px 6px;
+  pointer-events: none;
+  white-space: nowrap;
 }
 
 .depot-marker:active {
@@ -214,12 +241,13 @@ input[type='range'] {
   margin-left: 4px;
 }
 
-/* Vehicle-size key: white dots matching the map markers (type = size). The
-   stepper rows double as the legend for the marker/route sizing on the map. */
+/* Vehicle-size key: white rounded SQUARES matching the map badges (shape says
+   "vehicle", size says which type). The stepper rows double as the legend for
+   the marker/route sizing on the map. */
 .vdot {
   display: inline-block;
   flex: 0 0 auto;
-  border-radius: 50%;
+  border-radius: 30%;
   background: #fff;
   border: 1.5px solid rgba(255, 255, 255, 0.45);
   margin-right: 8px;
