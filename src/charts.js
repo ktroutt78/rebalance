@@ -178,7 +178,7 @@ export function finderChartSVG(
     rightMaxHint = null, // preferred right-axis top (e.g. 24 h = a full day); used when the data fits
   } = {}
 ) {
-  const W = 560, H = 252; // short enough that the modal never scrolls at 900px
+  const W = 560, H = 238; // short enough that the modal never scrolls at 900px
   const mT = 26, mR = 50, mB = 46, mL = 50;
   const plotW = W - mL - mR;
   const plotH = H - mT - mB;

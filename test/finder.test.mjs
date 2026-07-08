@@ -195,6 +195,20 @@ check(
   'pick bar opens pre-selected on the recommendation',
   prePick
 );
+
+// When a leaner full-coverage fleet comes within 10% of the recommendation,
+// the why-line surfaces it (maintenance and hiring aren't in the price).
+const lean = expectedRec
+  ? covered
+      .filter((r) => r.size < expectedRec.size && r.cost - expectedRec.cost < expectedRec.cost * 0.1)
+      .sort((a, b) => a.size - b.size || a.cost - b.cost)[0]
+  : null;
+const whyOpen = await page.evaluate(() => document.querySelector('.finder-pick-why')?.textContent || '');
+check(
+  !lean || whyOpen.includes('fewer vehicles to own and maintain'),
+  'recommendation names the leaner near-price alternative',
+  whyOpen.slice(-90)
+);
 // Click a DIFFERENT column → overlay stays open, pick bar previews that size.
 const otherSize = applySize === 8 ? 6 : 8;
 await page.evaluate((k) => {

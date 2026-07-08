@@ -226,6 +226,21 @@ export function initFinder({ solve, getContext, onApply }) {
           } station${cheaper.unserved === 1 ? '' : 's'} unserved.`
         );
       }
+      // The price doesn't know that every vehicle is one more thing to own,
+      // maintain, and staff — so when a leaner fleet comes close, say so and
+      // let the viewer weigh it.
+      if (recommended && pick === recommended) {
+        const lean = covered
+          .filter((r) => r.size < pick.size && r.cost - pick.cost < pick.cost * 0.1)
+          .sort((a, b) => a.size - b.size || a.cost - b.cost)[0];
+        if (lean) {
+          parts.push(
+            `Prefer fewer vehicles to own and maintain? ${mixWords(lean.counts)} covers everything with ${
+              lean.size
+            } for ${formatMoney(lean.cost - pick.cost)} more.`
+          );
+        }
+      }
       return parts.join(' ');
     };
 
@@ -290,7 +305,7 @@ export function initFinder({ solve, getContext, onApply }) {
     const trucksNote = bestTrucksOnly
       ? `The cheapest box-trucks-only plan runs ${formatMoney(bestTrucksOnly.cost)}.`
       : `No fleet of box trucks alone serves every station.`;
-    return cap + `${trucksNote} Click a column to preview that size's best mix.`;
+    return cap + `${trucksNote} Click a column to preview.`;
   }
 
   function loadingHTML(total) {
