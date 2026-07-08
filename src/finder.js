@@ -2,8 +2,9 @@
 // open it enumerates EVERY mix of vehicle types (up to each type's max, at most
 // FLEET_MAX_TOTAL vehicles), runs the REAL solver once per mix (in the worker,
 // off the UI thread), prices each solved plan with the config cost model, and
-// charts the cheapest plan at every fleet size. Clicking a size applies its
-// best mix to the map.
+// charts the cheapest plan at every ROLLING vehicle count (spares that park
+// don't count toward the axis). Clicking a column previews that count's best
+// plan; the apply button puts its owned recipe on the map.
 //
 // This module owns ONLY the overlay + interaction. It reuses the existing
 // solver (via the injected `solve`), metrics, and cost model — it never

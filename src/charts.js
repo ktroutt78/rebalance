@@ -158,7 +158,7 @@ export function systemHourly(stations) {
   return acc.map((v) => round1(v));
 }
 
-// Fleet-finder chart: dual-axis line over an integer x (fleet size). Left axis
+// Fleet-finder chart: dual-axis line over an integer x (vehicles on the road). Left axis
 // = a cost-like series (solid teal line, round markers); right axis = stations
 // unserved (dashed orange line, diamond markers) — distinguished by line style
 // AND marker shape, not color alone. The recommended x gets a vertical guide +
