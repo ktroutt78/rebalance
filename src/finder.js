@@ -146,21 +146,14 @@ export function initFinder({ solve, getContext, onApply }) {
         <div class="finder-card-stat">
           <span class="finder-stat-label">Cheapest full-coverage fleet</span>
           <span class="finder-stat-value">${recommended ? formatMoney(recommended.cost) : '—'}</span>
-          <span class="finder-stat-sub">${
-            recommended
-              ? mixWords(recommended.counts)
-              : `no mix of 1–${FLEET_MAX_TOTAL} vehicles serves every station`
-          }</span>
         </div>
         <div class="finder-card-stat">
           <span class="finder-stat-label" id="finder-sel-label">Selected fleet</span>
           <span class="finder-stat-value" id="finder-sel-value">—</span>
-          <span class="finder-stat-sub" id="finder-sel-sub">click a column to compare</span>
         </div>
         <div class="finder-card-stat">
-          <span class="finder-stat-label">Longest route</span>
+          <span class="finder-stat-label">Longest route selected</span>
           <span class="finder-stat-value hours" id="finder-hrs-value">—</span>
-          <span class="finder-stat-sub" id="finder-hrs-sub"></span>
         </div>
       </div>
       <div class="finder-chart" id="finder-chart">
@@ -195,9 +188,7 @@ export function initFinder({ solve, getContext, onApply }) {
     const pickEl = body.querySelector('#finder-pick');
     const selLabel = body.querySelector('#finder-sel-label');
     const selValue = body.querySelector('#finder-sel-value');
-    const selSub = body.querySelector('#finder-sel-sub');
     const hrsValue = body.querySelector('#finder-hrs-value');
-    const hrsSub = body.querySelector('#finder-hrs-sub');
     let selectedSize = recommended ? recommended.size : points[points.length - 1]?.size ?? null;
 
     // Justify the winner against its same-size rivals: every mix of that size
@@ -260,17 +251,13 @@ export function initFinder({ solve, getContext, onApply }) {
       }`;
 
       // Cards two and three track the selection for at-a-glance comparison
-      // against the recommendation in card one. Colors follow the chart's
-      // series: teal means dollars, orange means hours. Overtime is a price,
-      // not a failure, so it reads as information rather than a warning.
+      // against the recommendation in card one — pure label + number; the
+      // pick bar below the chart carries every detail. Colors follow the
+      // chart's series: teal means dollars, orange means hours.
       selLabel.textContent =
-        recommended && pick.size === recommended.size ? 'Selected fleet (the recommendation)' : 'Selected fleet';
+        recommended && pick.size === recommended.size ? 'Selected fleet (recommended)' : 'Selected fleet';
       selValue.textContent = formatMoney(pick.cost);
-      selSub.textContent = `${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${coverage}`;
       hrsValue.textContent = `${pick.maxHours.toFixed(1)} h`;
-      hrsSub.textContent =
-        pick.otHours > 0 ? `${pick.otHours.toFixed(1)} h total overtime` : `fits the ${SHIFT.hours} h shift`;
-      hrsSub.classList.remove('warn');
 
       pickEl.innerHTML = `
         <div class="finder-pick-info${coveredPick ? '' : ' warn'}">
@@ -284,6 +271,12 @@ export function initFinder({ solve, getContext, onApply }) {
         close();
         onApply({ ...pick.counts });
       });
+
+      // Lock the bar to the tallest content seen — the recommendation renders
+      // first and carries the longest why-text, so clicking around the chart
+      // never resizes the bar (and the whole modal with it).
+      const h = pickEl.offsetHeight;
+      if (h > (parseFloat(pickEl.style.minHeight) || 0)) pickEl.style.minHeight = `${h}px`;
     };
 
     svg?.addEventListener('click', (e) => {

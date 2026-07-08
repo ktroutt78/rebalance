@@ -116,7 +116,10 @@ if (expectedRec) {
     .filter(([n]) => n > 0)
     .map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`)
     .join(' + ');
-  check(cards.subs[0] === words, 'card 1 names the recommended mix', `${cards.subs[0]} vs ${words}`);
+  // Cards are pure label + number; the mix words live in the pick bar.
+  const pickStrong = await page.evaluate(() => document.querySelector('#finder-pick strong')?.textContent || '');
+  check(pickStrong.includes(words), 'pick bar names the recommended mix', `${pickStrong} vs ${words}`);
+  check(cards.subs.length === 0, 'KPI cards carry no sub-text', String(cards.subs.length));
 }
 
 // Cards 2 + 3 track the SELECTION and open on the recommendation.
@@ -209,13 +212,17 @@ check(
   'recommendation names the leaner near-price alternative',
   whyOpen.slice(-90)
 );
-// Click a DIFFERENT column → overlay stays open, pick bar previews that size.
+// Click a DIFFERENT column → overlay stays open, pick bar previews that size,
+// and the modal does NOT resize (the pick bar is locked to its tallest content).
+const heightBefore = await page.evaluate(() => document.querySelector('.finder-card').offsetHeight);
 const otherSize = applySize === 8 ? 6 : 8;
 await page.evaluate((k) => {
   document.querySelector(`.finder-hit[data-k="${k}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
 }, otherSize);
 await page.waitForTimeout(150);
 check(await shown('finder-overlay'), 'clicking a column previews without closing the overlay');
+const heightAfter = await page.evaluate(() => document.querySelector('.finder-card').offsetHeight);
+check(heightAfter === heightBefore, 'modal height is stable across column clicks', `${heightBefore}→${heightAfter}`);
 const otherPick = await page.evaluate(() => ({
   text: document.querySelector('#finder-pick strong')?.textContent || '',
   selectedCol: document.querySelector('.finder-hit.selected')?.dataset.k,
@@ -231,17 +238,15 @@ const bestOfSize = (size) =>
     .sort((a, b) => a.unserved - b.unserved || a.cost - b.cost)[0];
 const selCard = await page.evaluate(() => document.getElementById('finder-sel-value')?.textContent);
 check(selCard === fmt(bestOfSize(otherSize).cost), 'selected-fleet card updates with the click', selCard);
-const hrsCard = await page.evaluate(() => ({
-  value: document.getElementById('finder-hrs-value')?.textContent,
-  sub: document.getElementById('finder-hrs-sub')?.textContent,
-}));
+const hrsCard = await page.evaluate(() => document.getElementById('finder-hrs-value')?.textContent);
 const otherBest = bestOfSize(otherSize);
-check(hrsCard.value === `${otherBest.maxH.toFixed(1)} h`, 'longest-route card updates with the click', hrsCard.value);
+check(hrsCard === `${otherBest.maxH.toFixed(1)} h`, 'longest-route card updates with the click', hrsCard);
+// The overtime detail lives in the pick bar now.
+const pickStats = await page.evaluate(() => document.querySelector('.finder-pick-stats')?.textContent || '');
 check(
-  hrsCard.sub ===
-    (otherBest.otH > 0 ? `${otherBest.otH.toFixed(1)} h total overtime` : `fits the ${SHIFT_H} h shift`),
-  'longest-route card prices the overtime',
-  hrsCard.sub
+  otherBest.otH <= 0 || pickStats.includes(`${otherBest.otH.toFixed(1)} h overtime`),
+  'pick bar prices the overtime',
+  pickStats
 );
 
 // The pick bar justifies the winner against its same-size rivals.

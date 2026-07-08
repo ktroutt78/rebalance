@@ -243,11 +243,13 @@ export function finderChartSVG(
   }
 
   // Horizontal right-axis reference (e.g. the shift limit) behind the data.
+  // Label sits at the LEFT end: the hours series tends to converge onto the
+  // guide at the right edge and would collide with the text there.
   let hGuide = '';
   if (rightGuide) {
     const gy = yR(rightGuide.value);
     hGuide = `<line class="finder-right-guide" x1="${f(mL)}" y1="${f(gy)}" x2="${f(mL + plotW)}" y2="${f(gy)}"/>
-    <text class="finder-right-guide-label" x="${f(mL + plotW - 4)}" y="${f(gy - 5)}" text-anchor="end">${rightGuide.label}</text>`;
+    <text class="finder-right-guide-label" x="${f(mL + 4)}" y="${f(gy - 5)}" text-anchor="start">${rightGuide.label}</text>`;
   }
 
   const leftPts = points.map((p) => [xFor(p.x), yL(p.left)]);

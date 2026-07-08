@@ -975,9 +975,13 @@ input[type='range'] {
 }
 .finder-stat-label {
   font-size: 10.5px;
+  line-height: 1.35;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-dim);
+  /* Reserve two label lines so every card's big number sits at the same
+     height, whether its label wraps or not. */
+  min-height: 2.7em;
 }
 .finder-stat-value {
   font-size: 30px;
@@ -985,10 +989,6 @@ input[type='range'] {
   line-height: 1.05;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
-}
-.finder-stat-sub {
-  font-size: 11px;
-  color: var(--text-dim);
 }
 
 /* Dual-axis chart */
@@ -1125,9 +1125,6 @@ input[type='range'] {
 }
 /* Card colors follow the chart series: teal = dollars, orange = hours. */
 .finder-stat-value.hours {
-  color: #ffb44c;
-}
-.finder-stat-sub.warn {
   color: #ffb44c;
 }
 .finder-apply-btn {
