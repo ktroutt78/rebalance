@@ -190,6 +190,58 @@ input[type='range'] {
   font-weight: 600;
 }
 
+/* Fleet mix steppers: one row per vehicle type */
+.fleet-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fleet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+.fleet-name {
+  color: var(--text);
+}
+.fleet-name small {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.fleet-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fleet-btn {
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.fleet-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+.fleet-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.fleet-count {
+  width: 16px;
+  text-align: center;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* --- Metrics --- */
 .metrics {
   border-top: 1px solid var(--panel-border);
@@ -222,6 +274,14 @@ input[type='range'] {
 .metric-row {
   display: flex;
   gap: 18px;
+}
+
+/* Two headline metrics share a row (fleet cost + total distance) */
+.metric-row .metric.headline {
+  flex: 1;
+}
+.metric-row .metric.headline .m-value {
+  font-size: 23px;
 }
 
 .truck-breakdown {
@@ -264,7 +324,15 @@ input[type='range'] {
 
 .truck-row .t-name {
   color: var(--text-dim);
-  width: 52px;
+  width: 12px;
+  flex: 0 0 auto;
+}
+
+.truck-row .t-type {
+  color: var(--text-dim);
+  width: 40px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .truck-row .t-bar {
@@ -912,6 +980,15 @@ input[type='range'] {
   stroke: rgba(76, 201, 176, 0.4);
   stroke-width: 1;
   stroke-dasharray: 3 3;
+}
+.finder-right-guide {
+  stroke: rgba(255, 180, 76, 0.45);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+.finder-right-guide-label {
+  font-size: 9px;
+  fill: rgba(255, 180, 76, 0.8);
 }
 .finder-hit {
   fill: transparent;

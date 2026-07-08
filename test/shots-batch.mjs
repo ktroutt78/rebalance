@@ -19,9 +19,17 @@ const aBox = await page.locator('#analytics').boundingBox();
 await page.screenshot({ path: 'test/shot-ranking.png',
   clip: { x: aBox.x - 6, y: aBox.y - 6, width: aBox.width + 12, height: Math.min(aBox.height + 12, 880) } });
 
-// (a) high-K → honest unserved reporting, then zoom the map to the missed station
-await page.evaluate(() => { const k = document.getElementById('k-slider'); k.value = '8'; k.dispatchEvent(new Event('input', { bubbles: true })); });
-await page.waitForFunction(() => document.getElementById('k-val').textContent === '8', { timeout: 5000 });
+// (a) trailers-only fleet → honest unserved reporting, then zoom the map to a missed station
+await page.evaluate(() => {
+  const step = (type, delta, times) => {
+    for (let i = 0; i < times; i++)
+      document.querySelector(`.fleet-row[data-type="${type}"] .fleet-btn[data-delta="${delta}"]`).click();
+  };
+  step('trailer', '1', 1); // 3 → 4
+  step('truck', '-1', 3); // 3 → 0
+  step('van', '-1', 1); // 1 → 0
+});
+await page.waitForFunction(() => document.getElementById('fleet-total').textContent === '4', { timeout: 5000 });
 await page.waitForFunction(() => window.__rebalance.unserved().length > 0, { timeout: 8000 }).catch(() => {});
 const u = await page.evaluate(() => {
   const idxs = window.__rebalance.unserved();

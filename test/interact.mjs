@@ -1,5 +1,5 @@
-// Verifies the live re-solve loop: K slider, C slider, and depot drag each
-// trigger a fresh solve and update the metrics panel.
+// Verifies the live re-solve loop: fleet steppers and depot drag each trigger
+// a fresh solve and update the metrics panel.
 import { chromium } from 'playwright';
 
 const URL = process.env.SMOKE_URL || 'http://localhost:5174/';
@@ -19,23 +19,28 @@ await page.waitForFunction(
   { timeout: 45000 }
 );
 
+// The intro overlay intercepts pointer events; dismiss before the depot drag.
+await page.evaluate(() => document.getElementById('intro-dismiss')?.click());
+
 const read = () =>
   page.evaluate(() => ({
     total: document.getElementById('m-total').textContent,
+    cost: document.getElementById('m-cost').textContent,
+    fleetTotal: document.getElementById('fleet-total').textContent,
     trucks: document.querySelectorAll('.truck-row').length,
     status: document.getElementById('solve-status').textContent,
   }));
 
-const setSlider = async (id, value) => {
-  await page.evaluate(
-    ([id, value]) => {
-      const el = document.getElementById(id);
-      el.value = String(value);
-      el.dispatchEvent(new Event('input', { bubbles: true }));
+// Click a fleet stepper: type id ('truck'|'van'|'trailer'), delta (+1|-1).
+const stepFleet = (typeId, delta) =>
+  page.evaluate(
+    ([typeId, delta]) => {
+      document
+        .querySelector(`.fleet-row[data-type="${typeId}"] .fleet-btn[data-delta="${delta}"]`)
+        .click();
     },
-    [id, value]
+    [typeId, String(delta)]
   );
-};
 
 // Wait on the DOM settling rather than a fixed delay — the first re-solve under
 // headless software-WebGL can lag while initial shaders compile (instant on a
@@ -55,24 +60,23 @@ const check = (cond, msg, ctx) => {
 
 const initial = await read();
 console.log('initial:', JSON.stringify(initial));
+check(/^\$\d/.test(initial.cost), 'fleet cost metric renders as dollars', initial.cost);
 
-// 1) K slider: 4 → 7 trucks should change the per-truck breakdown count.
-await setSlider('k-slider', 7);
-await waitForTrucks(7).catch(() => {});
-const afterK = await read();
-check(afterK.trucks === 7, 'K slider re-solves (7 truck rows)', `${initial.trucks}→${afterK.trucks}`);
+// 1) Removing a box truck should shrink the fleet and re-solve.
+await stepFleet('truck', -1);
+await waitForTotalChange(initial.total).catch(() => {});
+const afterDec = await read();
+check(Number(afterDec.fleetTotal) === Number(initial.fleetTotal) - 1, 'stepper − shrinks the fleet count', `${initial.fleetTotal}→${afterDec.fleetTotal}`);
+check(afterDec.total !== initial.total, 'stepper − re-solves (total distance changed)', `${initial.total}→${afterDec.total}`);
 
-// 2) C slider: tighten to the minimum should change total distance and likely strand some.
-const beforeC = (await read()).total;
-await setSlider('c-slider', 20);
-await waitForTotalChange(beforeC).catch(() => {});
-const afterC = await read();
-check(afterC.total !== beforeC, 'C slider re-solves (total distance changed)', `${beforeC}→${afterC.total}`);
-
-// restore a clean capacity before the depot test
-const beforeRestore = (await read()).total;
-await setSlider('c-slider', 40);
-await waitForTotalChange(beforeRestore).catch(() => {});
+// 2) Adding a cargo van should grow the fleet and re-solve again.
+const beforeInc = afterDec;
+await stepFleet('van', 1);
+await waitForTotalChange(beforeInc.total).catch(() => {});
+const afterInc = await read();
+check(Number(afterInc.fleetTotal) === Number(beforeInc.fleetTotal) + 1, 'stepper + grows the fleet count', `${beforeInc.fleetTotal}→${afterInc.fleetTotal}`);
+check(afterInc.total !== beforeInc.total, 'stepper + re-solves (total distance changed)', `${beforeInc.total}→${afterInc.total}`);
+check(afterInc.cost !== initial.cost, 'fleet cost tracks the fleet change', `${initial.cost}→${afterInc.cost}`);
 
 // 3) Depot drag: grab the marker and drag it across the map.
 const before = await read();

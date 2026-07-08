@@ -100,7 +100,7 @@ const truckPanel = await page.evaluate(() => {
     hasDeselect: !!document.querySelector('#analytics .a-deselect'),
   };
 });
-check(truckPanel.eyebrow === 'Focused truck', 'truck-focus shows the focused-truck header');
+check(truckPanel.eyebrow === 'Focused vehicle', 'truck-focus shows the focused-vehicle header');
 check(truckPanel.hasLoad, 'truck-focus shows the load profile');
 check(truckPanel.ranks > 0, 'truck-focus brings the ranking BACK', `${truckPanel.ranks} rows`);
 check(!truckPanel.hasHourly, 'truck-focus has no net-flow chart (distinct from station view)');

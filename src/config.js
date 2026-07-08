@@ -26,6 +26,82 @@ export const K_RANGE = { min: 1, max: 8, default: 4 }; // trucks
 // trucks carrying a few dozen. We model the larger trucks — 10–40, default 30.
 export const C_RANGE = { min: 10, max: 40, default: 30 }; // bikes per truck
 
+// --- Fleet: real rebalancing runs a MIX of vehicles, not one truck size. ---
+// Capacities bracket the real demand data (|demand| tops out at 24 bikes, and
+// 103 of the 250 stations need 3 or fewer — small vehicles have real work).
+// Costs are rough per-shift estimates (dispatch/driver fixed + running $/mi);
+// invented but plausible, and only their RATIOS steer the fleet finder.
+// Declaration order is big → small so vehicle 1 is always the biggest.
+export const VEHICLE_TYPES = [
+  { id: 'truck', name: 'Box truck', short: 'Truck', capacity: 30, fixedCost: 110, costPerMile: 2.2, max: 4 },
+  { id: 'van', name: 'Cargo van', short: 'Van', capacity: 12, fixedCost: 60, costPerMile: 1.25, max: 4 },
+  { id: 'trailer', name: 'Bike trailer', short: 'Trailer', capacity: 3, fixedCost: 20, costPerMile: 0.5, max: 4 },
+];
+export const FLEET_MAX_TOTAL = 8; // one TRUCK_COLORS entry per vehicle
+// Landing state = the fleet finder's own recommendation at the default depot
+// (cheapest full-coverage mix whose routes all fit the overnight shift), so the
+// app opens on the optimizer's answer.
+export const DEFAULT_FLEET = { truck: 3, van: 1, trailer: 3 };
+
+// --- Shift realism: a plan only counts if it's drivable in one night. ---
+// Route time = driving at Manhattan crawl speeds + service time per stop and
+// per bike handled. Without this, one box truck "wins" every cost comparison
+// by driving a 20+ hour route — cheap on paper, impossible on the street.
+// This lives OUTSIDE the solver (which minimizes distance for a given fleet);
+// it's a feasibility judgment on the solved plan.
+export const SHIFT = {
+  hours: 8, // overnight window, roughly 22:00–06:00
+  mph: { truck: 9, van: 10, trailer: 8 }, // stop-and-go city speeds
+  minPerStop: 1, // pull over, position, paperwork
+  minPerBike: 0.5, // load or unload one bike
+};
+
+// Hours a vehicle of `type` needs to run one solved route.
+export function routeHours(type, distanceMeters, stops, bikesMoved) {
+  const mph = SHIFT.mph[type.id] ?? 9;
+  const driveH = distanceMeters / METERS_PER_MILE / mph;
+  return driveH + (stops * SHIFT.minPerStop + bikesMoved * SHIFT.minPerBike) / 60;
+}
+
+// Longest single route in a plan, in hours (0 for an all-idle plan).
+export function planMaxHours(fleet, perTruck) {
+  let h = 0;
+  for (const t of perTruck) {
+    if (t.stops === 0) continue;
+    const type = fleet[t.truckIndex];
+    if (!type) continue;
+    h = Math.max(h, routeHours(type, t.distance, t.stops, t.bikesMoved));
+  }
+  return h;
+}
+
+// Expand per-type counts ({truck:2, van:1, …}) into the per-vehicle list the
+// solver and UI consume, in VEHICLE_TYPES order (big → small).
+export function buildFleet(counts) {
+  const fleet = [];
+  for (const t of VEHICLE_TYPES) {
+    for (let i = 0; i < (counts[t.id] || 0); i++) fleet.push(t);
+  }
+  return fleet;
+}
+
+// Dollar cost of a solved plan: every vehicle that actually rolls pays its
+// fixed dispatch cost plus per-mile running cost; idle vehicles cost nothing.
+// The SOLVER stays cost-blind (it minimizes distance within a given fleet) —
+// dollars live up here so the optimization core keeps a single clean objective.
+export function fleetCost(fleet, perTruck) {
+  let cost = 0;
+  for (const t of perTruck) {
+    if (t.stops === 0) continue;
+    const type = fleet[t.truckIndex];
+    if (!type) continue;
+    cost += type.fixedCost + (t.distance / METERS_PER_MILE) * type.costPerMile;
+  }
+  return cost;
+}
+
+export const formatMoney = (v) => `$${Math.round(v).toLocaleString('en-US')}`;
+
 // --- Data ---
 export const PARQUET_URL = `${import.meta.env.BASE_URL}stations_demand.parquet`;
 

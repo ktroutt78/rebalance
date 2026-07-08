@@ -158,33 +158,44 @@ export function systemHourly(stations) {
   return acc.map((v) => round1(v));
 }
 
-// Configuration-finder chart: dual-axis line over truck count K (x = 1..8).
-// Left axis = total distance in km (solid teal line, round markers); right axis =
-// stations unserved (dashed orange line, diamond markers) — distinguished by line
-// style AND marker shape, not color alone. The recommended K (fewest trucks for
-// full coverage) gets a vertical guide + a haloed marker. Each K has a full-height
-// transparent hit column (data-k) so a click anywhere in that band applies it.
-const FINDER_DIST = '#4cc9b0'; // accent teal
-const FINDER_UNSERVED = '#ffb44c'; // warn orange
-
-export function finderChartSVG(results, { recommendedK = null } = {}) {
+// Fleet-finder chart: dual-axis line over an integer x (fleet size). Left axis
+// = a cost-like series (solid teal line, round markers); right axis = stations
+// unserved (dashed orange line, diamond markers) — distinguished by line style
+// AND marker shape, not color alone. The recommended x gets a vertical guide +
+// a haloed marker. Each x has a full-height transparent hit column (data-k) so
+// a click anywhere in that band applies it.
+// points: [{ x, left, right }] in ascending x; axes/titles come from opts so
+// the chart stays agnostic about what it's plotting.
+export function finderChartSVG(
+  points,
+  {
+    recommendedX = null,
+    leftTitle = '',
+    rightTitle = '',
+    xTitle = '',
+    fmtLeft = (v) => String(Math.round(v)),
+    rightGuide = null, // { value, label } — horizontal reference on the right axis
+  } = {}
+) {
   const W = 560, H = 290;
   const mT = 26, mR = 50, mB = 46, mL = 50;
   const plotW = W - mL - mR;
   const plotH = H - mT - mB;
-  const kMin = 1, kMax = 8;
+  const xMin = points[0].x;
+  const xMax = points[points.length - 1].x;
 
-  const distsKm = results.map((r) => r.distance / 1000);
-  const unserved = results.map((r) => r.unserved);
-  const leftMax = niceMax(Math.max(1e-6, ...distsKm));
-  const rightMax = Math.max(1, niceMax(Math.max(...unserved)));
+  const lefts = points.map((p) => p.left);
+  const rights = points.map((p) => p.right);
+  const leftMax = niceMax(Math.max(1e-6, ...lefts));
+  // Keep the right-axis guide on-scale so the reference line always shows.
+  const rightMax = Math.max(1, niceMax(Math.max(...rights, rightGuide ? rightGuide.value : 0)));
 
-  const xFor = (k) => mL + ((k - kMin) / (kMax - kMin)) * plotW;
+  const xFor = (x) => mL + ((x - xMin) / Math.max(1, xMax - xMin)) * plotW;
   const yL = (v) => mT + plotH - (v / leftMax) * plotH;
   const yR = (v) => mT + plotH - (v / rightMax) * plotH;
   const bottom = mT + plotH;
 
-  // Gridlines + left (distance) axis ticks.
+  // Gridlines + left/right axis ticks.
   let grid = '';
   let leftTicks = '';
   let rightTicks = '';
@@ -192,65 +203,73 @@ export function finderChartSVG(results, { recommendedK = null } = {}) {
   for (let i = 0; i <= STEPS; i++) {
     const y = mT + (i / STEPS) * plotH;
     grid += `<line class="finder-grid" x1="${f(mL)}" y1="${f(y)}" x2="${f(mL + plotW)}" y2="${f(y)}"/>`;
-    const dv = leftMax * (1 - i / STEPS);
-    leftTicks += `<text class="finder-axis-l" x="${f(mL - 8)}" y="${f(y + 3)}" text-anchor="end">${fmtKm(dv)}</text>`;
-    const uv = rightMax * (1 - i / STEPS);
-    rightTicks += `<text class="finder-axis-r" x="${f(mL + plotW + 8)}" y="${f(y + 3)}" text-anchor="start">${round1(uv)}</text>`;
+    const lv = leftMax * (1 - i / STEPS);
+    leftTicks += `<text class="finder-axis-l" x="${f(mL - 8)}" y="${f(y + 3)}" text-anchor="end">${fmtLeft(lv)}</text>`;
+    const rv = rightMax * (1 - i / STEPS);
+    rightTicks += `<text class="finder-axis-r" x="${f(mL + plotW + 8)}" y="${f(y + 3)}" text-anchor="start">${round1(rv)}</text>`;
   }
 
-  // X-axis labels (truck counts) + hit columns.
+  // X-axis labels + hit columns.
   let xLabels = '';
   let hits = '';
-  const slot = plotW / (kMax - kMin);
-  for (let k = kMin; k <= kMax; k++) {
-    const x = xFor(k);
-    const rec = k === recommendedK;
-    xLabels += `<text class="finder-xlabel${rec ? ' rec' : ''}" x="${f(x)}" y="${f(bottom + 18)}" text-anchor="middle">${k}</text>`;
-    const hx = x - slot / 2;
-    hits += `<rect class="finder-hit" data-k="${k}" x="${f(hx)}" y="${f(mT)}" width="${f(slot)}" height="${f(plotH)}"/>`;
+  const slot = plotW / Math.max(1, xMax - xMin);
+  for (let x = xMin; x <= xMax; x++) {
+    const px = xFor(x);
+    const rec = x === recommendedX;
+    xLabels += `<text class="finder-xlabel${rec ? ' rec' : ''}" x="${f(px)}" y="${f(bottom + 18)}" text-anchor="middle">${x}</text>`;
+    hits += `<rect class="finder-hit" data-k="${x}" x="${f(px - slot / 2)}" y="${f(mT)}" width="${f(slot)}" height="${f(plotH)}"/>`;
   }
 
-  // Recommended-K guide line behind the data.
+  // Recommended-x guide line behind the data.
   let recGuide = '';
-  if (recommendedK != null) {
-    const rx = xFor(recommendedK);
+  if (recommendedX != null) {
+    const rx = xFor(recommendedX);
     recGuide = `<line class="finder-rec-guide" x1="${f(rx)}" y1="${f(mT)}" x2="${f(rx)}" y2="${f(bottom)}"/>`;
   }
 
-  const distPts = results.map((r, i) => [xFor(r.k), yL(distsKm[i])]);
-  const unsPts = results.map((r, i) => [xFor(r.k), yR(r.unserved)]);
+  // Horizontal right-axis reference (e.g. the shift limit) behind the data.
+  let hGuide = '';
+  if (rightGuide) {
+    const gy = yR(rightGuide.value);
+    hGuide = `<line class="finder-right-guide" x1="${f(mL)}" y1="${f(gy)}" x2="${f(mL + plotW)}" y2="${f(gy)}"/>
+    <text class="finder-right-guide-label" x="${f(mL + plotW - 4)}" y="${f(gy - 5)}" text-anchor="end">${rightGuide.label}</text>`;
+  }
+
+  const leftPts = points.map((p) => [xFor(p.x), yL(p.left)]);
+  const rightPts = points.map((p) => [xFor(p.x), yR(p.right)]);
   const poly = (pts) => pts.map((p) => `${f(p[0])},${f(p[1])}`).join(' ');
 
-  // Distance markers (circles); halo the recommended one.
-  let distMarks = '';
-  results.forEach((r, i) => {
-    const [x, y] = distPts[i];
-    if (r.k === recommendedK) {
-      distMarks += `<circle class="finder-rec-halo" cx="${f(x)}" cy="${f(y)}" r="8"/>`;
+  // Left-series markers (circles); halo the recommended one.
+  let leftMarks = '';
+  points.forEach((p, i) => {
+    const [x, y] = leftPts[i];
+    if (p.x === recommendedX) {
+      leftMarks += `<circle class="finder-rec-halo" cx="${f(x)}" cy="${f(y)}" r="8"/>`;
     }
-    distMarks += `<circle class="finder-dot-dist" cx="${f(x)}" cy="${f(y)}" r="3.4"/>`;
+    leftMarks += `<circle class="finder-dot-dist" cx="${f(x)}" cy="${f(y)}" r="3.4"/>`;
   });
 
-  // Unserved markers (diamonds) — shape distinguishes them from the distance line.
-  let unsMarks = '';
-  unsPts.forEach(([x, y]) => {
+  // Right-series markers (diamonds) — shape distinguishes them from the left line.
+  let rightMarks = '';
+  rightPts.forEach(([x, y]) => {
     const s = 3.4;
-    unsMarks += `<path class="finder-dot-uns" d="M${f(x)},${f(y - s)} L${f(x + s)},${f(y)} L${f(x)},${f(y + s)} L${f(x - s)},${f(y)} Z"/>`;
+    rightMarks += `<path class="finder-dot-uns" d="M${f(x)},${f(y - s)} L${f(x + s)},${f(y)} L${f(x)},${f(y + s)} L${f(x - s)},${f(y)} Z"/>`;
   });
 
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" class="finder-svg">
     ${grid}
     ${recGuide}
-    <text class="finder-axis-title l" x="${f(mL)}" y="14" text-anchor="start">total distance (km)</text>
-    <text class="finder-axis-title r" x="${f(mL + plotW)}" y="14" text-anchor="end">stations unserved</text>
+    ${hGuide}
+    <text class="finder-axis-title l" x="${f(mL)}" y="14" text-anchor="start">${leftTitle}</text>
+    <text class="finder-axis-title r" x="${f(mL + plotW)}" y="14" text-anchor="end">${rightTitle}</text>
     ${leftTicks}
     ${rightTicks}
-    <polyline class="finder-line-dist" points="${poly(distPts)}"/>
-    <polyline class="finder-line-uns" points="${poly(unsPts)}"/>
-    ${distMarks}
-    ${unsMarks}
+    <polyline class="finder-line-dist" points="${poly(leftPts)}"/>
+    <polyline class="finder-line-uns" points="${poly(rightPts)}"/>
+    ${leftMarks}
+    ${rightMarks}
     ${xLabels}
-    <text class="finder-xaxis-title" x="${f(mL + plotW / 2)}" y="${f(H - 4)}" text-anchor="middle">number of trucks</text>
+    <text class="finder-xaxis-title" x="${f(mL + plotW / 2)}" y="${f(H - 4)}" text-anchor="middle">${xTitle}</text>
     ${hits}
   </svg>`;
 }
@@ -263,8 +282,6 @@ function niceMax(v) {
   const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
   return step * pow;
 }
-const fmtKm = (v) => (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10);
-
 function hourName(h) {
   const ap = h < 12 ? 'a' : 'p';
   const hr = h % 12 === 0 ? 12 : h % 12;

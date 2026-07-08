@@ -141,6 +141,7 @@ README.md
 - **No optimization API** — solver is hand-written. (Road API allowed in phase 2 for *drawing only*.)
 - **Pure web** — no backend; only a small Parquet ships to the client.
 - **Solver:** cluster-first, capacity-aware NN + 2-opt, in a Web Worker.
+- **Mixed fleet (added 2026-07):** three vehicle types — bike trailer (3), cargo van (12), box truck (30) — with per-vehicle capacities in the solver (capacity-to-cluster matching + oversized-station eviction; distance objective unchanged). Dollar costs (fixed dispatch + per-mile) and the 8-hour overnight-shift feasibility check (drive time at city speeds + per-stop/per-bike service time) live OUTSIDE the solver, in `config.js`; the fleet finder uses them to recommend the cheapest mix that serves every station within the shift. Without the shift check, one box truck trivially wins every cost comparison with an undrivable 20+ hour route. Stations are served atomically — no split deliveries.
 
 ---
 

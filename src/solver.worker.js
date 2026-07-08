@@ -1,22 +1,29 @@
 // ─────────────────────────────────────────────────────────────────────────
 // The optimizer. Interview material — read top to bottom.
 //
-// Problem: capacitated 1-commodity pickup-and-delivery VRP.
-//   Each station has signed demand: +N = surplus (truck PICKS UP N bikes),
-//   −N = deficit (truck DROPS OFF N). A truck starts empty at the depot, and
-//   its running load must stay in [0, C] at EVERY stop (can't carry > C,
-//   can't drop bikes it doesn't have). Minimize total fleet distance.
+// Problem: capacitated 1-commodity pickup-and-delivery VRP, with a
+// HETEROGENEOUS fleet.
+//   Each station has signed demand: +N = surplus (vehicle PICKS UP N bikes),
+//   −N = deficit (vehicle DROPS OFF N). Vehicle t starts empty at the depot,
+//   and its running load must stay in [0, caps[t]] at EVERY stop (can't carry
+//   more than its own capacity, can't drop bikes it doesn't have). A station
+//   is served atomically — no split deliveries — so a vehicle can only visit
+//   stations whose |demand| fits its capacity. Minimize total fleet distance.
 //
 // Strategy: cluster-first, route-second, capacity-aware. All hand-written —
 // no optimization library. (CLAUDE.md: that's the whole point.)
-//   1. k-means on lat/lng → K spatial clusters, then a balancing pass that
-//      nudges each cluster's NET demand toward zero (so one truck can actually
-//      satisfy its cluster without stranding pickups/dropoffs).
-//   2. Per truck: capacity-aware nearest-neighbour seed, then 2-opt cleanup
+//   1. k-means on lat/lng → K spatial clusters, matched to vehicles biggest-
+//      capacity ↔ heaviest-workload; stations too big for their vehicle are
+//      evicted to the nearest cluster whose vehicle can carry them; then a
+//      balancing pass nudges each cluster's NET demand toward zero (so one
+//      vehicle can satisfy its cluster without stranding pickups/dropoffs).
+//   2. Per vehicle: capacity-aware nearest-neighbour seed, then 2-opt cleanup
 //      that REJECTS any swap violating the load profile.
 //
 // The matrix + stations are sent once via {type:'init'}; each {type:'solve'}
-// only carries depot/K/C so dragging the depot or nudging a slider is cheap.
+// only carries depot + fleet so dragging the depot or nudging a control is
+// cheap. `fleet` is an array of per-vehicle capacities; the legacy {K, C}
+// form (K identical vehicles) is still accepted.
 // ─────────────────────────────────────────────────────────────────────────
 
 let STATIONS = null; // [{idx, lat, lng, demand}]
@@ -33,7 +40,9 @@ self.onmessage = (e) => {
   }
   if (type === 'solve') {
     const t0 = performance.now();
-    const result = solve(payload.depot, payload.K, payload.C);
+    // fleet = per-vehicle capacity list; {K, C} = legacy homogeneous form.
+    const caps = payload.fleet ?? new Array(payload.K).fill(payload.C);
+    const result = solve(payload.depot, caps);
     result.solveMs = Math.round(performance.now() - t0);
     self.postMessage({ type: 'solved', payload: result, id: e.data.id });
   }
@@ -52,7 +61,8 @@ function haversine(aLat, aLng, bLat, bLng) {
 }
 
 // ── main solve ────────────────────────────────────────────────────────────
-function solve(depot, K, C) {
+function solve(depot, caps) {
+  const K = caps.length;
   // Depot moves at runtime, so its distances are computed here (the O(N²)
   // station-station block stays cached in MATRIX from DuckDB).
   const depotDist = new Float64Array(N);
@@ -66,23 +76,94 @@ function solve(depot, K, C) {
   for (let i = 0; i < N; i++) if (STATIONS[i].demand !== 0) active.push(i);
 
   const clusters = clusterStations(K, active);
-  balanceClusters(clusters);
+  const byVehicle = matchClustersToVehicles(clusters, caps);
+  const unserviceable = evictOversized(byVehicle, caps, depotDist);
+  balanceClusters(byVehicle, caps);
 
   const routes = [];
-  const allUnsatisfied = [];
-  for (let t = 0; t < clusters.length; t++) {
-    const seedIdxs = clusters[t];
+  const allUnsatisfied = [...unserviceable];
+  for (let t = 0; t < K; t++) {
+    const seedIdxs = byVehicle[t];
     if (seedIdxs.length === 0) {
       routes.push(emptyRoute(t, depot));
       continue;
     }
-    const { order, unsatisfied } = nearestNeighbourRoute(seedIdxs, depotDist, C);
-    const optimized = twoOpt(order, depotDist, C);
+    const { order, unsatisfied } = nearestNeighbourRoute(seedIdxs, depotDist, caps[t]);
+    const optimized = twoOpt(order, depotDist, caps[t]);
     allUnsatisfied.push(...unsatisfied);
     routes.push(buildRoute(t, optimized, depot, depotDist));
   }
 
-  return assembleMetrics(routes, allUnsatisfied, C);
+  return assembleMetrics(routes, allUnsatisfied, caps);
+}
+
+// ── 1a′. cluster ↔ vehicle matching ───────────────────────────────────────
+// k-means is capacity-blind, so decide WHO drives WHERE afterwards: rank
+// clusters by workload (Σ|demand| — bikes that must cross its docks) and hand
+// the heaviest cluster to the biggest vehicle. With fewer clusters than
+// vehicles (sparse problems), the smallest vehicles are the ones left parked.
+function matchClustersToVehicles(clusters, caps) {
+  const K = caps.length;
+  const workload = (members) => members.reduce((s, i) => s + Math.abs(STATIONS[i].demand), 0);
+  const clusterOrder = clusters
+    .map((_, c) => c)
+    .sort((a, b) => workload(clusters[b]) - workload(clusters[a]));
+  const vehicleOrder = caps.map((_, t) => t).sort((a, b) => caps[b] - caps[a] || a - b);
+
+  const byVehicle = Array.from({ length: K }, () => []);
+  clusterOrder.forEach((c, rank) => {
+    byVehicle[vehicleOrder[rank]] = clusters[c];
+  });
+  return byVehicle;
+}
+
+// ── 1a″. oversized-station eviction ───────────────────────────────────────
+// A station is served atomically, so a vehicle can never visit one whose
+// |demand| exceeds its capacity (the load would leave [0, cap] in one step).
+// Rather than letting those strand in a small vehicle's cluster, move each to
+// the nearest cluster whose vehicle CAN carry it. A station too big for the
+// whole fleet is unserviceable — reported unserved up front.
+function evictOversized(byVehicle, caps, depotDist) {
+  const K = caps.length;
+  const unserviceable = [];
+  const centroidOf = (members) => {
+    let lat = 0;
+    let lng = 0;
+    for (const i of members) {
+      lat += STATIONS[i].lat;
+      lng += STATIONS[i].lng;
+    }
+    return { lat: lat / members.length, lng: lng / members.length };
+  };
+
+  for (let t = 0; t < K; t++) {
+    const keep = [];
+    for (const i of byVehicle[t]) {
+      const need = Math.abs(STATIONS[i].demand);
+      if (need <= caps[t]) {
+        keep.push(i);
+        continue;
+      }
+      // nearest capable cluster; an empty capable cluster competes at its
+      // depot distance (its vehicle would start the route from the depot).
+      let best = -1;
+      let bestD = Infinity;
+      for (let u = 0; u < K; u++) {
+        if (u === t || caps[u] < need) continue;
+        const d = byVehicle[u].length
+          ? sqDist(STATIONS[i], centroidOf(byVehicle[u]))
+          : (depotDist[i] / 111000) ** 2; // metres → rough degrees² to compare with sqDist
+        if (d < bestD) {
+          bestD = d;
+          best = u;
+        }
+      }
+      if (best < 0) unserviceable.push(i);
+      else byVehicle[best].push(i);
+    }
+    byVehicle[t] = keep;
+  }
+  return unserviceable;
 }
 
 // ── 1a. k-means clustering on lat/lng (over the active stations only) ──────
@@ -184,7 +265,9 @@ function sqDist(a, b) {
 // A spatially tidy cluster that is all surplus (or all deficit) can't be
 // served by a single truck. We greedily move boundary stations to a
 // neighbouring cluster while it reduces the global imbalance Σ|net_c|.
-function balanceClusters(clusters) {
+// With a mixed fleet the move must also respect the destination vehicle: a
+// station never moves to a cluster whose vehicle can't carry its |demand|.
+function balanceClusters(clusters, caps) {
   const k = clusters.length;
   if (k < 2) return;
 
@@ -223,6 +306,7 @@ function balanceClusters(clusters) {
         if (Math.sign(d) !== sign) continue; // moving this reduces |net_from|
         for (let to = 0; to < k; to++) {
           if (to === from || !centroids[to]) continue;
+          if (Math.abs(d) > caps[to]) continue; // destination vehicle can't carry it
           const before = Math.abs(nets[from]) + Math.abs(nets[to]);
           const after = Math.abs(nets[from] - d) + Math.abs(nets[to] + d);
           const gain = before - after; // >0 ⇒ global imbalance reduced
@@ -380,7 +464,7 @@ function emptyRoute(truckIndex, depot) {
   };
 }
 
-function assembleMetrics(routes, unsatisfied, C) {
+function assembleMetrics(routes, unsatisfied, caps) {
   const totalDistance = routes.reduce((s, r) => s + r.distance, 0);
   const bikesMoved = routes.reduce((s, r) => s + r.bikesMoved, 0);
   const servedStations = routes.reduce((s, r) => s + r.stationIdxs.length, 0);
@@ -397,9 +481,11 @@ function assembleMetrics(routes, unsatisfied, C) {
       unsatisfied: unsatisfied.length,
       totalStations,
       demandingStations: demanding,
-      capacity: C,
+      capacity: Math.max(...caps), // legacy scalar; per-vehicle truth is below
+      fleet: [...caps],
       perTruck: routes.map((r) => ({
         truckIndex: r.truckIndex,
+        capacity: caps[r.truckIndex],
         distance: r.distance,
         stops: r.stationIdxs.length,
         maxLoad: r.maxLoad,

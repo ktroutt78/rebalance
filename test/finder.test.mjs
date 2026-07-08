@@ -1,9 +1,11 @@
-// Configuration finder verification + deliverable screenshots.
-//  - button opens the overlay; sweep runs K=1..8 via the REAL solver (loading state)
-//  - both stat cards + the chart reflect the real swept numbers (cross-checked
-//    against an independent direct sweep through the same worker hook)
+// Fleet finder verification + deliverable screenshots.
+//  - fleet steppers render with the default mix; button opens the overlay
+//  - sweep runs EVERY vehicle mix via the REAL solver (loading state), prices
+//    each plan, and the recommendation card matches an independent sweep run
+//    through the same worker hook with the same cost + shift model
+//  - chart: 8 columns, cost + longest-route lines, shift guide, recommended halo
 //  - no internal scroll in the overlay
-//  - clicking a point applies that K to the map + closes the overlay
+//  - clicking a column applies that size's best mix to the steppers + map
 // Shots: test/shot-finder-open.png (chart + cards), test/shot-finder-applied.png (map)
 import { chromium } from 'playwright';
 
@@ -27,80 +29,115 @@ let fails = 0;
 const check = (c, m, x) => { console.log(`${c ? '✓' : '✗'} ${m}${x !== undefined ? ` (${x})` : ''}`); if (!c) fails++; };
 const shown = (id) => page.evaluate((i) => !document.getElementById(i).classList.contains('hidden'), id);
 
-// Capacity slider bounds (PART A).
-const cBounds = await page.evaluate(() => {
-  const c = document.getElementById('c-slider');
-  return { min: c.min, max: c.max, value: c.value };
-});
-check(cBounds.min === '10' && cBounds.max === '40', 'capacity slider bounds 10–40', JSON.stringify(cBounds));
-check(cBounds.value === '30', 'capacity default 30', cBounds.value);
+// Mirror of the config cost + shift model. If config.js drifts, the card
+// cross-check below fails — that's the point of an independent sweep.
+const TYPES = [
+  { id: 'truck', cap: 30, fx: 110, mi: 2.2, mph: 9, max: 4 },
+  { id: 'van', cap: 12, fx: 60, mi: 1.25, mph: 10, max: 4 },
+  { id: 'trailer', cap: 3, fx: 20, mi: 0.5, mph: 8, max: 4 },
+];
+const SHIFT_H = 8, MIN_STOP = 1, MIN_BIKE = 0.5, MAX_TOTAL = 8, MI = 1609.344;
 
-// About copy line (PART A).
-await page.evaluate(() => document.getElementById('help-btn').click());
-await page.waitForTimeout(120);
-const aboutText = (await page.evaluate(() => document.getElementById('about-overlay').innerText)).replace(/\s+/g, ' ');
+// Fleet steppers render the default mix (the finder's own recommendation).
+const steppers = await page.evaluate(() => ({
+  rows: document.querySelectorAll('.fleet-row').length,
+  total: document.getElementById('fleet-total').textContent,
+  counts: Object.fromEntries(
+    Array.from(document.querySelectorAll('.fleet-row')).map((r) => [r.dataset.type, r.querySelector('.fleet-count').textContent])
+  ),
+}));
+check(steppers.rows === 3, 'three vehicle-type stepper rows', steppers.rows);
+check(steppers.total === '7', 'default fleet totals 7 vehicles', steppers.total);
 check(
-  aboutText.includes('Real Citi Bike rebalancing uses everything from 3-bike trailers to box trucks carrying a few dozen bikes. This models the larger trucks.'),
-  'About copy line added verbatim'
+  steppers.counts.truck === '3' && steppers.counts.van === '1' && steppers.counts.trailer === '3',
+  'default mix is 3 trucks + 1 van + 3 trailers', JSON.stringify(steppers.counts)
 );
-check(!aboutText.includes('—') || !/trailers to box trucks—/.test(aboutText), 'no em dash in new copy line');
-await page.evaluate(() => document.getElementById('about-close').click());
-await page.waitForTimeout(80);
 
 // Independent ground-truth sweep via the same worker hook the finder uses.
-const truth = await page.evaluate(async () => {
-  const r = window.__rebalance;
-  const depot = r.depot ? r.depot() : null; // may not exist; fall back below
-  // Use the live solver hook exposed for the finder if present; else re-run via
-  // the debug surface. We replicate the finder's exact inputs.
-  const C = Number(document.getElementById('c-slider').value);
+console.log('ground-truth sweep (all mixes)…');
+const truth = await page.evaluate(async ({ TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, MAX_TOTAL, MI }) => {
+  const mixes = [];
+  for (let a = 0; a <= TYPES[0].max; a++)
+    for (let b = 0; b <= TYPES[1].max; b++)
+      for (let c = 0; c <= TYPES[2].max; c++) {
+        const n = a + b + c;
+        if (n >= 1 && n <= MAX_TOTAL) mixes.push([a, b, c]);
+      }
   const out = [];
-  for (let k = 1; k <= 8; k++) {
-    const res = await window.__rebalance.solveOnce({ K: k, C });
-    out.push({ k, distance: res.metrics.totalDistance, unserved: res.metrics.unsatisfied });
+  for (const m of mixes) {
+    const fleetTypes = [];
+    m.forEach((n, i) => { for (let k = 0; k < n; k++) fleetTypes.push(TYPES[i]); });
+    const res = await window.__rebalance.solveOnce({ fleet: fleetTypes.map((t) => t.cap) });
+    let cost = 0, maxH = 0;
+    for (const t of res.metrics.perTruck) {
+      if (t.stops === 0) continue;
+      const ty = fleetTypes[t.truckIndex];
+      cost += ty.fx + (t.distance / MI) * ty.mi;
+      maxH = Math.max(maxH, t.distance / MI / ty.mph + (t.stops * MIN_STOP + t.bikesMoved * MIN_BIKE) / 60);
+    }
+    out.push({ m, size: m[0] + m[1] + m[2], cost, unserved: res.metrics.unsatisfied, maxH });
   }
-  return { C, out };
-});
+  return { count: mixes.length, out };
+}, { TYPES, SHIFT_H, MIN_STOP, MIN_BIKE, MAX_TOTAL, MI });
+console.log(`  ${truth.count} mixes solved`);
+
+const workable = truth.out.filter((r) => r.unserved === 0 && r.maxH <= SHIFT_H);
+const expectedRec = workable.length ? workable.reduce((a, b) => (a.cost <= b.cost ? a : b)) : null;
 
 // Open the finder; observe the loading state, then the results.
 await page.evaluate(() => document.getElementById('finder-open').click());
 check(await shown('finder-overlay'), 'finder overlay opens');
-// Loading state appears (best-effort: it may flash quickly).
 const sawLoading = await page.evaluate(() => !!document.querySelector('.finder-loading'));
 check(sawLoading, 'loading state shown while sweeping');
 
-// Wait for the chart to render.
-await page.waitForFunction(() => !!document.querySelector('.finder-svg'), { timeout: 30000 });
+// Wait for the chart to render (the sweep is ~100 real solves).
+await page.waitForFunction(() => !!document.querySelector('.finder-svg'), { timeout: 60000 });
 await page.waitForTimeout(300);
 
-// Recompute expected stat cards from the ground-truth sweep.
-const expected = (() => {
-  const out = truth.out;
-  const full = out.find((r) => r.unserved === 0);
-  const recommendedK = full ? full.k : null;
-  let minK = out[0].k, minDist = out[0].distance;
-  for (const r of out) if (r.distance < minDist - 1e-6) { minDist = r.distance; minK = r.k; }
-  return { recommendedK, minK };
-})();
-
-const cards = await page.evaluate(() =>
-  Array.from(document.querySelectorAll('.finder-card-stat .finder-stat-value')).map((e) => e.textContent.trim()));
+// Card 1 (cheapest workable fleet) matches the independent sweep.
+const cards = await page.evaluate(() => ({
+  values: Array.from(document.querySelectorAll('.finder-card-stat .finder-stat-value')).map((e) => e.textContent.trim()),
+  subs: Array.from(document.querySelectorAll('.finder-card-stat .finder-stat-sub')).map((e) => e.textContent.trim()),
+}));
 check(
-  cards[0] === (expected.recommendedK != null ? String(expected.recommendedK) : '—'),
-  'card 1 (fewest for full coverage) matches real sweep', `${cards[0]} vs ${expected.recommendedK}`
+  cards.values[0] === (expectedRec ? `$${Math.round(expectedRec.cost).toLocaleString('en-US')}` : '—'),
+  'card 1 (cheapest workable fleet) matches real sweep',
+  `${cards.values[0]} vs $${expectedRec ? Math.round(expectedRec.cost) : '—'}`
 );
-check(cards[1] === String(expected.minK), 'card 2 (distance min K) matches real sweep', `${cards[1]} vs ${expected.minK}`);
+if (expectedRec) {
+  const words = [
+    [expectedRec.m[0], 'box truck'],
+    [expectedRec.m[1], 'cargo van'],
+    [expectedRec.m[2], 'bike trailer'],
+  ]
+    .filter(([n]) => n > 0)
+    .map(([n, w]) => `${n} ${w}${n === 1 ? '' : 's'}`)
+    .join(' + ');
+  check(cards.subs[0] === words, 'card 1 names the recommended mix', `${cards.subs[0]} vs ${words}`);
+}
 
-// Chart has 8 hit columns + both polylines.
+// Card 2: trucks-only comparison, consistent with the sweep.
+const trucksOnly = workable.filter((r) => r.m[1] === 0 && r.m[2] === 0);
+if (trucksOnly.length) {
+  const bestTO = trucksOnly.reduce((a, b) => (a.cost <= b.cost ? a : b));
+  const saving = Math.round(bestTO.cost - expectedRec.cost);
+  check(cards.values[1] === `$${saving.toLocaleString('en-US')} more`, 'card 2 prices the trucks-only premium', cards.values[1]);
+} else {
+  check(cards.values[1] === `> ${SHIFT_H} h`, 'card 2 reports trucks-only busts the shift', cards.values[1]);
+}
+
+// Chart shape: 8 hit columns, both lines, shift guide, recommended halo.
 const chartShape = await page.evaluate(() => ({
   hits: document.querySelectorAll('.finder-hit').length,
-  dist: !!document.querySelector('.finder-line-dist'),
-  uns: !!document.querySelector('.finder-line-uns'),
+  cost: !!document.querySelector('.finder-line-dist'),
+  hours: !!document.querySelector('.finder-line-uns'),
+  guide: !!document.querySelector('.finder-right-guide'),
   halo: !!document.querySelector('.finder-rec-halo'),
 }));
 check(chartShape.hits === 8, 'chart has 8 clickable columns', chartShape.hits);
-check(chartShape.dist && chartShape.uns, 'both distance + unserved lines drawn');
-check(expected.recommendedK == null || chartShape.halo, 'recommended point marked');
+check(chartShape.cost && chartShape.hours, 'cost + longest-route lines drawn');
+check(chartShape.guide, 'shift-limit guide line drawn');
+check(expectedRec == null || chartShape.halo, 'recommended point marked');
 
 // No internal scroll in the overlay card.
 const noScroll = await page.evaluate(() => {
@@ -116,19 +153,23 @@ await page.mouse.click(30, 450);
 await page.waitForTimeout(120);
 check(!(await shown('finder-overlay')), 'clicking outside dismisses overlay');
 
-// Re-open and click a specific column to apply that K.
-const applyK = expected.recommendedK || 6;
+// Re-open and click the recommended size's column to apply that mix.
+const applySize = expectedRec ? expectedRec.size : 6;
 await page.evaluate(() => document.getElementById('finder-open').click());
-await page.waitForFunction(() => !!document.querySelector('.finder-svg'), { timeout: 30000 });
+await page.waitForFunction(() => !!document.querySelector('.finder-svg'), { timeout: 60000 });
 await page.waitForTimeout(200);
 await page.evaluate((k) => {
   const hit = document.querySelector(`.finder-hit[data-k="${k}"]`);
   hit.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-}, applyK);
+}, applySize);
 await page.waitForTimeout(400);
 check(!(await shown('finder-overlay')), 'overlay closes after applying a point');
-const appliedK = await page.evaluate(() => Number(document.getElementById('k-slider').value));
-check(appliedK === applyK, 'clicked point applied K to the Trucks slider', `${appliedK} vs ${applyK}`);
+const applied = await page.evaluate(() => ({
+  total: Number(document.getElementById('fleet-total').textContent),
+  fleet: window.__rebalance.fleet(),
+}));
+const appliedTotal = Object.values(applied.fleet).reduce((s, n) => s + n, 0);
+check(applied.total === applySize && appliedTotal === applySize, 'clicked column applied its best mix to the steppers', JSON.stringify(applied.fleet));
 
 // Let the re-solve + camera settle, then capture the map.
 await page.waitForTimeout(1400);
@@ -136,6 +177,10 @@ await page.screenshot({ path: 'test/shot-finder-applied.png' });
 
 check(errors.length === 0, 'no page errors', errors.join(' | '));
 await browser.close();
-console.log(`\nsweep @C=${truth.C}:`, truth.out.map((r) => `K${r.k}:${(r.distance / 1000).toFixed(1)}km/${r.unserved}u`).join('  '));
+if (expectedRec) {
+  console.log(
+    `\nrecommended: truck=${expectedRec.m[0]} van=${expectedRec.m[1]} trailer=${expectedRec.m[2]} $${Math.round(expectedRec.cost)} maxH=${expectedRec.maxH.toFixed(1)}`
+  );
+}
 console.log(fails === 0 ? '\n✓ FINDER PASS' : `\n✗ FINDER FAIL (${fails})`);
 process.exit(fails === 0 ? 0 : 1);

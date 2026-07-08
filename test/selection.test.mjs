@@ -61,7 +61,7 @@ const legendClick = await page.evaluate(() => {
 });
 check(legendClick.sel.truckIdx === legendClick.t, 'legend click focuses that truck', `truck ${legendClick.sel.truckIdx}`);
 check(legendClick.sel.stationIdx === null, 'legend click clears selected station');
-check(legendClick.eyebrow === 'Focused truck', 'panel shows focused-truck view (load chart)');
+check(legendClick.eyebrow === 'Focused vehicle', 'panel shows focused-vehicle view (load chart)');
 
 // 3) Real map click on a station's screen position → selects it (deck onClick path).
 const mapClick = await page.evaluate(async (sIdx) => {

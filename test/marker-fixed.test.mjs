@@ -23,18 +23,24 @@ await page.evaluate(() => document.getElementById('intro-dismiss')?.click());
 let fails = 0;
 const check = (c, m, x) => { console.log(`${c ? '✓' : '✗'} ${m}${x ? ` (${x})` : ''}`); if (!c) fails++; };
 
-// Focus the truck that reaches capacity (its profile spans empty → full).
-const C = 30;
+// Focus the vehicle that reaches ITS OWN capacity (profile spans empty → full).
 const info = await page.evaluate(() => {
   const r = window.__rebalance.routes();
   let best = r[0], mx = -1;
-  for (const x of r) { const m = Math.max(...x.waypoints.map((w) => w.load)); if (m > mx) { mx = m; best = x; } }
+  for (const x of r) {
+    const cap = window.__rebalance.capacityOf(x.truckIndex);
+    if (!cap) continue;
+    const m = Math.max(...x.waypoints.map((w) => w.load)) / cap;
+    if (m > mx) { mx = m; best = x; }
+  }
   window.__rebalance.focusTruck(best.truckIndex);
   const loads = best.waypoints.map((w) => w.load);
-  return { n: best.waypoints.length, peak: mx, peakIdx: loads.indexOf(mx) };
+  const peak = Math.max(...loads);
+  return { n: best.waypoints.length, peak, peakIdx: loads.indexOf(peak), cap: window.__rebalance.capacityOf(best.truckIndex) };
 });
 await page.waitForTimeout(300);
-check(info.peak >= C, 'focused truck actually reaches capacity', `peak ${info.peak}`);
+const C = info.cap; // the focused vehicle's OWN capacity (mixed fleet)
+check(info.peak >= C, 'focused vehicle actually reaches its capacity', `peak ${info.peak}/${C}`);
 
 // Drag a single scrub across the whole sequence; the clock is frozen at each
 // sampled stop, so load + radius reads are deterministic. Sample every stop.
@@ -71,7 +77,7 @@ await page.mouse.up();
 
 const minL = Math.min(...loads), maxL = Math.max(...loads);
 check(maxL > minL, 'load varies across the route', `${minL}…${maxL}`);
-check(saw3030 || maxL >= C, 'route passes through the 30/30 at-capacity stop', `max ${maxL}`);
+check(saw3030 || maxL >= C, `route passes through the ${C}/${C} at-capacity stop`, `max ${maxL}`);
 check(radii.size === 1, 'marker radius is a single constant across the whole route', `radii: ${[...radii].join(',')}`);
 const r0 = [...radii][0];
 check(typeof r0 === 'number' && r0 >= 6, 'radius is one fixed legible value, not load-derived', `${r0}px`);

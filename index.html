@@ -21,15 +21,11 @@
       </header>
 
       <section class="controls">
-        <label class="ctrl">
-          <span class="ctrl-label">Trucks <strong id="k-val">4</strong></span>
-          <input id="k-slider" type="range" min="1" max="8" step="1" value="4" />
-        </label>
-        <button type="button" id="finder-open" class="finder-open-btn">How many trucks do I need?</button>
-        <label class="ctrl">
-          <span class="ctrl-label">Capacity <strong id="c-val">30</strong> <small>bikes/truck</small></span>
-          <input id="c-slider" type="range" min="10" max="40" step="1" value="30" />
-        </label>
+        <div class="ctrl">
+          <span class="ctrl-label">Fleet <strong id="fleet-total">4</strong> <small>vehicles</small></span>
+          <div id="fleet-controls" class="fleet-controls"></div>
+        </div>
+        <button type="button" id="finder-open" class="finder-open-btn">What’s the cheapest fleet?</button>
         <div class="ctrl">
           <span class="ctrl-label">Animation</span>
           <div class="transport">
@@ -46,9 +42,15 @@
       </section>
 
       <section class="metrics" id="metrics">
-        <div class="metric headline">
-          <span class="m-label">Total distance</span>
-          <span class="m-value" id="m-total">—</span>
+        <div class="metric-row">
+          <div class="metric headline">
+            <span class="m-label">Fleet cost</span>
+            <span class="m-value" id="m-cost">—</span>
+          </div>
+          <div class="metric headline">
+            <span class="m-label">Total distance</span>
+            <span class="m-value" id="m-total">—</span>
+          </div>
         </div>
         <div class="metric-row">
           <div class="metric">
@@ -86,8 +88,8 @@
       <div class="info-card intro-card" role="dialog" aria-modal="true" aria-labelledby="intro-title">
         <h2 id="intro-title" class="info-title">Rebalance</h2>
         <p>Bike-share operators constantly move bikes between stations, by truck and trailer, often overnight. They take them from stations that fill up and deliver them to stations that run empty, so riders find a bike (and an open dock) when they need one. This is an interactive look at that problem, using a day of real Citi Bike trip data for Manhattan.</p>
-        <p>Each dot is a station. <strong class="c-surplus">Blue</strong> means a surplus: more bikes arrive than leave, so they pile up and need picking up. <strong class="c-deficit">Red</strong> means a deficit: more bikes leave than arrive, so the station runs short and needs bikes dropped off. The lines are truck routes carrying bikes from the blue stations to the red ones.</p>
-        <p>Click a truck, a station, or a station in the ranking to focus it. Drag the sliders to change how many trucks you have and how much each can carry, then watch the routes re-solve.</p>
+        <p>Each dot is a station. <strong class="c-surplus">Blue</strong> means a surplus: more bikes arrive than leave, so they pile up and need picking up. <strong class="c-deficit">Red</strong> means a deficit: more bikes leave than arrive, so the station runs short and needs bikes dropped off. The lines are vehicle routes carrying bikes from the blue stations to the red ones.</p>
+        <p>Click a vehicle, a station, or a station in the ranking to focus it. Adjust the fleet — bike trailers that carry 3, cargo vans that carry 12, box trucks that carry 30 — then watch the routes re-solve.</p>
         <p>The routing is solved from scratch. No mapping API does the optimization. Built by Keith Troutt with Claude Code.</p>
         <button id="intro-dismiss" class="info-btn" type="button">Got it, explore</button>
       </div>
@@ -99,20 +101,21 @@
         <button id="about-close" class="info-close" type="button" aria-label="Close">✕</button>
         <h2 id="about-title" class="info-title">About Rebalance</h2>
         <p><strong>The problem.</strong> This is a capacitated pickup-and-delivery routing problem, a cousin of the traveling salesman problem. Trucks start at a depot, pick up bikes from surplus stations, drop them at deficit ones, and return, without ever carrying more than their capacity. The goal is to satisfy every station's need with the least total driving. It's the same problem Citi Bike's operations team actually solves. The research-grade version uses integer programming for exact answers, while this tool uses a faster heuristic so it can re-solve interactively as you change the inputs.</p>
-        <p><strong>The data.</strong> Station locations and demand come from a representative weekday of real Citi Bike trips. A station's demand is its net flow, meaning bikes arriving minus bikes leaving over the day. Stations that stay one-directional (always emptying or always filling) are the ones that need a truck. Balanced stations barely register. Real Citi Bike rebalancing uses everything from 3-bike trailers to box trucks carrying a few dozen bikes. This models the larger trucks.</p>
-        <p><strong>Reading a focused truck.</strong> Click a truck to follow it. The load profile chart shows its inventory at every stop, from depot to depot, against its capacity. When a bar hits the ceiling, the truck is full, which is often why its route loops back: it can't pick up more until it drops some off. Drag across the chart to scrub the truck along its route and read its exact load at each stop.</p>
+        <p><strong>The data.</strong> Station locations and demand come from a representative weekday of real Citi Bike trips. A station's demand is its net flow, meaning bikes arriving minus bikes leaving over the day. Stations that stay one-directional (always emptying or always filling) are the ones that need a visit. Balanced stations barely register. Real Citi Bike rebalancing uses everything from 3-bike trailers to box trucks carrying a few dozen bikes, and this models that mix: trailers carrying 3, cargo vans carrying 12, box trucks carrying 30. The fleet finder prices each option with rough cost estimates, so the dollar figures are illustrative, not quotes.</p>
+        <p><strong>Reading a focused vehicle.</strong> Click a vehicle to follow it. The load profile chart shows its inventory at every stop, from depot to depot, against its capacity. When a bar hits the ceiling, the vehicle is full, which is often why its route loops back: it can't pick up more until it drops some off. Drag across the chart to scrub the vehicle along its route and read its exact load at each stop.</p>
         <p><strong>Net flow by hour.</strong> Click a station to see its imbalance across the day. Many stations swing, with a surplus in the morning and a deficit in the evening. That commuter pattern is what creates the whole problem.</p>
-        <p><strong>A finding.</strong> Adding trucks doesn't always help. Past a point, splitting the work into more routes can increase total distance and even leave stations unserved. It's a limit of the cluster-first approach, visible if you push the truck slider up.</p>
+        <p><strong>A finding.</strong> Adding vehicles doesn't always help. Past a point, splitting the work into more routes can increase total distance and even leave stations unserved. It's a limit of the cluster-first approach, visible if you keep growing the fleet.</p>
       </div>
     </div>
 
-    <!-- Configuration finder: sweeps K=1..8 at the current capacity and charts the
-         tradeoff. Opened by the "How many trucks do I need?" button; modal over the map. -->
+    <!-- Fleet finder: sweeps every mix of trailers/vans/box trucks (1–8 vehicles),
+         costs each solved plan, and charts the tradeoff. Opened by the
+         "What's the cheapest fleet?" button; modal over the map. -->
     <div id="finder-overlay" class="info-overlay finder-overlay hidden">
       <div class="info-card finder-card" role="dialog" aria-modal="true" aria-labelledby="finder-title">
         <button id="finder-close" class="info-close" type="button" aria-label="Close">✕</button>
-        <h2 id="finder-title" class="info-title">How many trucks do you need?</h2>
-        <p class="finder-intro">Sweeping the fleet from 1 to 8 trucks at the current capacity, re-running the real solver each time. The fewest trucks that cover every station, and where extra trucks stop helping.</p>
+        <h2 id="finder-title" class="info-title">What’s the cheapest fleet?</h2>
+        <p class="finder-intro">Trying every mix of bike trailers, cargo vans, and box trucks up to 8 vehicles, re-running the real solver on each. Costs are rough estimates — a fixed dispatch cost per vehicle that rolls, plus a per-mile rate — and a plan only counts if every route fits an 8-hour overnight shift. One heroic box truck is cheap on paper; it just can't finish the night's work.</p>
         <div id="finder-body" class="finder-body"></div>
       </div>
     </div>

@@ -7,7 +7,7 @@
 // The load profile surfaces the solver's per-stop running inventory (it does NOT
 // recompute it).
 
-import { TRUCK_COLORS, formatDistance } from './config.js';
+import { TRUCK_COLORS, formatDistance, routeHours } from './config.js';
 import { hourlyChartSVG, rankingHTML, systemHourly, loadChartSVG, LOAD_CHART } from './charts.js';
 
 const $ = (id) => document.getElementById(id);
@@ -68,9 +68,9 @@ export function renderPanel(sel, ctx) {
   const blocks = [];
   if (station) {
     blocks.push(block('Net flow by hour', 'a-hourly', 'a-chart'));
-    if (route) blocks.push(block(`Load profile · Truck ${truckIdx + 1}`, 'a-load', 'a-load-chart'));
+    if (route) blocks.push(block(`Load profile · Vehicle ${truckIdx + 1}`, 'a-load', 'a-load-chart'));
   } else if (truckIdx != null) {
-    if (route) blocks.push(block(`Load profile · Truck ${truckIdx + 1}`, 'a-load', 'a-load-chart'));
+    if (route) blocks.push(block(`Load profile · Vehicle ${truckIdx + 1}`, 'a-load', 'a-load-chart'));
     blocks.push(block('Most imbalanced', 'a-rank', 'a-rank'));
   } else {
     blocks.push(block('Net flow by hour · system', 'a-hourly', 'a-chart'));
@@ -78,7 +78,7 @@ export function renderPanel(sel, ctx) {
   }
 
   const hint = !selected
-    ? '<p class="a-hint">Click a station, a truck, or a ranking bar to focus.</p>'
+    ? '<p class="a-hint">Click a station, a vehicle, or a ranking bar to focus.</p>'
     : route
     ? '<p class="a-hint">Drag across the load chart to scrub and read each stop’s load · ✕ or click the map to deselect.</p>'
     : '<p class="a-hint">✕ or click empty map space to deselect.</p>';
@@ -98,7 +98,7 @@ export function renderPanel(sel, ctx) {
   if (loadEl && route) {
     const seq = buildLoadSequence(route, ctx.stationsByIdx);
     const selectedIndex = station ? seq.findIndex((p) => p.stationIdx === station.idx) : -1;
-    loadEl.innerHTML = loadChartSVG(seq, ctx.capacity, { selectedIndex });
+    loadEl.innerHTML = loadChartSVG(seq, ctx.capacityFor(truckIdx), { selectedIndex });
     loadCtx = { el: loadEl, truckIdx, n: seq.length, seq, selectedIndex, ctx };
     wireLoadChart();
   }
@@ -196,7 +196,7 @@ function stationHeader(s, truckIdx) {
     truckIdx != null
       ? `<div class="a-truck"><span class="swatch" style="background:${rgb(
           TRUCK_COLORS[truckIdx % TRUCK_COLORS.length]
-        )}"></span>Served by truck ${truckIdx + 1}</div>`
+        )}"></span>Served by vehicle ${truckIdx + 1}</div>`
       : '';
   return `
     <header class="a-head">
@@ -210,15 +210,19 @@ function stationHeader(s, truckIdx) {
 
 function truckHeader(truckIdx, route, ctx) {
   const color = TRUCK_COLORS[truckIdx % TRUCK_COLORS.length];
+  const type = ctx.fleetTypes ? ctx.fleetTypes[truckIdx] : null;
   const stops = route ? route.stationIdxs.length : 0;
   const maxLoad = route ? route.maxLoad : 0;
   const dist = route ? formatDistance(route.distance) : '0 mi';
+  const hours = route && type ? ` · ~${routeHours(type, route.distance, stops, route.bikesMoved).toFixed(1)} h` : '';
   return `
     <header class="a-head">
       ${deselectBtn}
-      <div class="a-eyebrow">Focused truck</div>
-      <h2 class="a-title"><span class="swatch lg" style="background:${rgb(color)}"></span>Truck ${truckIdx + 1}</h2>
-      <div class="a-sub">${stops} stops · ${dist} · peak load ${maxLoad} / ${ctx.capacity}</div>
+      <div class="a-eyebrow">Focused vehicle</div>
+      <h2 class="a-title"><span class="swatch lg" style="background:${rgb(color)}"></span>Vehicle ${truckIdx + 1}${
+        type ? ` · ${type.name}` : ''
+      }</h2>
+      <div class="a-sub">${stops} stops · ${dist}${hours} · peak load ${maxLoad} / ${ctx.capacityFor(truckIdx)}</div>
     </header>`;
 }
 

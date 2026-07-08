@@ -8,7 +8,7 @@ import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapboxOverlay } from '@deck.gl/mapbox';
 
-import { MAP_STYLE, INITIAL_VIEW, DEFAULT_DEPOT, ANIM } from './config.js';
+import { MAP_STYLE, INITIAL_VIEW, DEFAULT_DEPOT, ANIM, DEFAULT_FLEET, buildFleet } from './config.js';
 import { loadStations, computeDistanceMatrix } from './duckdb.js';
 import { Solver } from './solver.js';
 import {
@@ -21,7 +21,8 @@ import {
   truckLoadLabelLayer,
 } from './layers.js';
 import {
-  initControls,
+  initFleetControls,
+  setFleetCounts,
   initSpeedControl,
   initPlayToggle,
   renderMetrics,
@@ -48,8 +49,8 @@ const state = {
   stationsByIdx: new Map(),
   solver: null,
   depot: { ...DEFAULT_DEPOT },
-  K: 4,
-  C: 30,
+  fleet: { ...DEFAULT_FLEET }, // per-type counts from the steppers
+  fleetTypes: buildFleet(DEFAULT_FLEET), // per-vehicle type list, aligned to truckIndex
   speed: ANIM.defaultSpeed,
   playing: true, // transport state: animation clock advances only while true
   scrubbing: false, // true while the user drags the load-chart scrubber (Stage 4)
@@ -116,9 +117,7 @@ async function boot() {
   state.solver.init(state.stations, matrix);
 
   // --- controls ---
-  const initial = initControls({ onChange: onControlChange });
-  state.K = initial.K;
-  state.C = initial.C;
+  state.fleet = initFleetControls({ counts: state.fleet, onChange: onFleetChange });
 
   // --- animation speed ---
   state.speed = initSpeedControl({ onChange: (s) => (state.speed = s), initial: state.speed });
@@ -143,12 +142,12 @@ async function boot() {
   // Intro card over the (now solved + animating) map; "?" recalls the About panel.
   initInfo();
 
-  // Configuration finder: sweeps K=1..8 at the current capacity via the real solver
-  // worker, then a clicked point applies that K to the live map.
+  // Fleet finder: sweeps every trailer/van/truck mix via the real solver worker,
+  // prices each plan, then a clicked point applies that mix to the live map.
   initFinder({
-    solve: ({ depot, K, C }) => state.solver.solve({ depot, K, C }),
-    getContext: () => ({ depot: state.depot, C: state.C }),
-    onApply: applyTruckCount,
+    solve: ({ depot, fleet }) => state.solver.solve({ depot, fleet }),
+    getContext: () => ({ depot: state.depot }),
+    onApply: applyFleet,
   });
 
   exposeDebugHooks();
@@ -163,32 +162,31 @@ async function boot() {
 }
 
 let resolveTimer = null;
-function onControlChange(kind, value) {
-  state[kind] = value;
-  // Debounce slider drags so we re-solve on settle, not every pixel.
+function onFleetChange(counts) {
+  state.fleet = counts;
+  // Debounce rapid stepper clicks so we re-solve on settle, not every tap.
   clearTimeout(resolveTimer);
   resolveTimer = setTimeout(resolve, 90);
 }
 
-// Apply a truck count chosen in the configuration finder: sync the slider + its
-// label, then re-solve immediately (no debounce — it's a deliberate single pick).
-function applyTruckCount(k) {
-  const slider = document.getElementById('k-slider');
-  const label = document.getElementById('k-val');
-  if (slider) slider.value = String(k);
-  if (label) label.textContent = String(k);
-  state.K = k;
+// Apply a fleet mix chosen in the finder: sync the steppers, then re-solve
+// immediately (no debounce — it's a deliberate single pick).
+function applyFleet(counts) {
+  setFleetCounts(counts);
+  state.fleet = { ...counts };
   resolve();
 }
 
-// Solve with the current depot/K/C. Coalesces overlapping requests.
+// Solve with the current depot + fleet. Coalesces overlapping requests.
 async function resolve() {
   if (state.solving) {
     state.pendingResolve = true;
     return;
   }
   state.solving = true;
-  const result = await state.solver.solve({ depot: state.depot, K: state.K, C: state.C });
+  const types = buildFleet(state.fleet);
+  const result = await state.solver.solve({ depot: state.depot, fleet: types.map((t) => t.capacity) });
+  state.fleetTypes = types; // commit alongside the solution they produced
   state.model = buildAnimationModel(result.routes);
   state.metrics = result.metrics;
   state.unservedIdxs = new Set(result.unsatisfiedIdxs || []); // honest coverage → map treatment
@@ -197,7 +195,7 @@ async function resolve() {
   state.stationToTruck = new Map();
   for (const r of result.routes) for (const s of r.stationIdxs) state.stationToTruck.set(s, r.truckIndex);
 
-  renderMetrics(result.metrics);
+  renderMetrics(result.metrics, types);
   setSolution(result.routes); // refresh selection's station→truck + re-derive focus
   onSelectionChange(getSelection()); // re-apply legend highlight + panel after row rebuild
 
@@ -269,7 +267,8 @@ function panelContext() {
     metrics: state.metrics,
     stationToTruck: state.stationToTruck,
     routesByTruck: state.routesByTruck,
-    capacity: state.C,
+    fleetTypes: state.fleetTypes, // per-vehicle type (name + capacity), by truckIndex
+    capacityFor: (t) => state.fleetTypes[t]?.capacity ?? 0,
     onSelectStation: selectStation,
     onClearSelection: clearSelection, // ✕ in the selected-state header → back to default
     // Scrubber (Stage 4): the chart drives the truck's position on the map.
@@ -384,8 +383,15 @@ function startAnimation() {
         tripsLayer(state.model, state.currentTime, focus),
         truckMarkerLayer(state.model, state.currentTime, focus),
         truckNumberLayer(state.model, state.currentTime, focus),
-        // On-map "load/cap" readout above the focused truck; load snaps to the stop.
-        truckLoadLabelLayer(state.model, state.currentTime, state.C, focus, focusStopIndex),
+        // On-map "load/cap" readout above the focused truck; load snaps to the
+        // stop, and the denominator is that vehicle's OWN capacity.
+        truckLoadLabelLayer(
+          state.model,
+          state.currentTime,
+          sel.truckIdx != null ? state.fleetTypes[sel.truckIdx]?.capacity ?? 0 : 0,
+          focus,
+          focusStopIndex
+        ),
       ].filter(Boolean),
     });
 
@@ -419,8 +425,12 @@ function exposeDebugHooks() {
     stations: () => state.stations,
     depot: () => ({ ...state.depot }),
     // Run a single solve through the SAME worker the finder uses, without touching
-    // app state — lets a test ground-truth the finder's sweep against the real solver.
-    solveOnce: ({ K, C }) => state.solver.solve({ depot: state.depot, K, C }),
+    // app state — lets a test ground-truth the finder's sweep against the real
+    // solver. Takes {fleet: [caps]} or the legacy homogeneous {K, C}.
+    solveOnce: ({ K, C, fleet }) => state.solver.solve({ depot: state.depot, K, C, fleet }),
+    fleet: () => ({ ...state.fleet }),
+    fleetTypes: () => state.fleetTypes.map((t) => t.id),
+    capacityOf: (t) => state.fleetTypes[t]?.capacity ?? null,
     stationToTruck: () => state.stationToTruck,
     unserved: () => [...state.unservedIdxs],
     // Pan/zoom the map to a station (used by screenshot tooling to frame the
@@ -451,7 +461,7 @@ function exposeDebugHooks() {
       if (!m || !m.stopLoads) return null;
       const i = state.currentStopIndex;
       if (i < 0 || i >= m.stopLoads.length) return null;
-      return `${m.stopLoads[i]}/${state.C}`;
+      return `${m.stopLoads[i]}/${state.fleetTypes[sel.truckIdx]?.capacity ?? 0}`;
     },
     // Truck marker radius as configured on the live layer — a constant now, so it
     // never varies with load. Lets a test confirm the marker holds one size.

@@ -1,9 +1,10 @@
 # Rebalance
 
 Interactive, pure-browser solver + animator for the Citi Bike **rebalancing
-problem** — a capacitated pickup-and-delivery VRP. Route a fleet of trucks to
-move bikes from surplus stations to deficit stations in minimum total distance,
-respecting truck capacity. The optimizer is hand-written (no routing/optimization
+problem** — a capacitated pickup-and-delivery VRP with a **mixed fleet**. Route
+bike trailers (3 bikes), cargo vans (12), and box trucks (30) to move bikes from
+surplus stations to deficit stations in minimum total distance, respecting each
+vehicle's capacity. The optimizer is hand-written (no routing/optimization
 API); see [`SPEC.md`](./SPEC.md) for the full design and [`CLAUDE.md`](./CLAUDE.md)
 for working conventions.
 
@@ -12,8 +13,12 @@ for working conventions.
 The full loop runs end-to-end:
 
 **DuckDB-Wasm loads Parquet → computes distance matrix → solver worker
-(k-means + capacity-aware NN + 2-opt) → deck.gl renders stations, route arcs,
-and animated trucks → K/C sliders + draggable depot re-solve live.**
+(k-means + capacity-aware NN + 2-opt, per-vehicle capacities) → deck.gl renders
+stations, route arcs, and animated vehicles → fleet steppers + draggable depot
+re-solve live.** A **fleet finder** sweeps every trailer/van/truck mix through
+the real solver, prices each plan (fixed dispatch + per-mile, rough estimates),
+and recommends the cheapest fleet that serves every station within an 8-hour
+overnight shift.
 
 Demand is **real net flow** from one representative NYC weekday (Wed 2025-03-19,
 131,576 trips) of the official Citi Bike S3 data — see
@@ -41,15 +46,16 @@ node test/solver.test.mjs   # headless solver invariants (capacity, accounting)
 node test/coverage.mjs      # solver coverage across K=1..8 on the live parquet
 # Browser tests need the dev server running on :5174 (npx vite --port 5174):
 node test/smoke.mjs         # full load→solve→animate loop in headless Chrome
-node test/interact.mjs      # K/C sliders + depot drag each re-solve
+node test/interact.mjs      # fleet steppers + depot drag each re-solve
 node test/selection.test.mjs# selection state syncs across map + legend + panel
 node test/panel.test.mjs    # charts render + ranking-bar is a selection entry point
 node test/loadchart.test.mjs# speed control, load profile, playhead sync, scrubber
 ```
 
 `test/solver.test.mjs` proves the non-negotiables from `SPEC.md`: running load
-stays in `[0, C]` on every route, no station served twice, and bikes-moved
-accounting matches served demand — across a grid of K and C.
+stays in `[0, cap]` on every route (each vehicle's OWN capacity), no station
+served twice, no vehicle visiting a station it can't carry, and bikes-moved
+accounting matches served demand — across a grid of K and C plus mixed fleets.
 
 ## Architecture
 
@@ -64,9 +70,10 @@ accounting matches served demand — across a grid of K and C.
 | `src/layers.js` | deck.gl layers — stations, route arcs, animated trucks; focus-aware styling. |
 | `src/charts.js` | Hand-rolled SVG: signed hourly net-flow chart + imbalance ranking. |
 | `src/panel.js` | Right-side analytics column (header + chart + ranking), reads selection. |
-| `src/ui.js` | Sliders + live metrics panel + clickable truck legend. |
+| `src/ui.js` | Fleet steppers + live metrics panel (incl. cost) + clickable vehicle legend. |
+| `src/finder.js` | Fleet finder — sweeps every vehicle mix, prices plans, recommends the cheapest workable fleet. |
 | `src/main.js` | Bootstrap: map + deck overlay, orchestrates load → solve → animate + selection. |
-| `src/config.js` | K/C ranges, colors, marker tuning, map style, bbox, defaults. |
+| `src/config.js` | Vehicle types (capacity + cost + shift model), colors, marker tuning, map style, defaults. |
 
 Clean boundaries: **DuckDB** loads + measures, **JS** optimizes, **deck.gl**
 renders. The solver is dependency-free on purpose.
@@ -98,18 +105,25 @@ its stop on the map, click to select it via the spine.
 ### The solver, briefly
 
 1. **Cluster** stations (nonzero demand only) into K groups with k-means on
-   lat/lng, then a **balancing pass** that moves boundary stations until each
-   cluster's *net* demand trends to ~zero — so one truck can actually satisfy
-   its cluster. (Each move strictly cuts total imbalance, so it converges.)
-2. **Route** each truck: capacity-aware nearest-neighbour seed (only steps that
-   keep running load in `[0, C]`), then **2-opt** that rejects any swap
+   lat/lng. **Match** clusters to vehicles (heaviest workload ↔ biggest
+   capacity), **evict** any station whose |demand| exceeds its vehicle's
+   capacity to the nearest cluster that can carry it (service is atomic — no
+   split deliveries), then a **balancing pass** moves boundary stations until
+   each cluster's *net* demand trends to ~zero — so one vehicle can actually
+   satisfy its cluster. (Each move strictly cuts total imbalance, so it
+   converges; moves respect the destination vehicle's capacity.)
+2. **Route** each vehicle: capacity-aware nearest-neighbour seed (only steps
+   that keep running load in `[0, cap]`), then **2-opt** that rejects any swap
    violating the load profile.
-3. Return per-truck routes + metrics (total/per-truck distance, bikes moved,
-   stations satisfied/unsatisfied, max load per truck).
+3. Return per-vehicle routes + metrics (total/per-vehicle distance, bikes
+   moved, stations satisfied/unsatisfied, max load per vehicle).
 
-Tighten the **C** slider and stations visibly strand (a +18 surplus needs a
-truck that can carry ≥18); loosen it and routes relax. That honest dynamic
-range is the proof the capacity constraint is real.
+Swap the fleet to trailers-only and stations visibly strand (a +18 surplus
+needs a vehicle that can carry ≥18); add a box truck and routes relax. That
+honest dynamic range is the proof the capacity constraint is real. Dollar costs
+and the shift clock live **outside** the solver (`config.js`): the solver
+minimizes distance for a given fleet; the finder judges fleets by price and
+drivability.
 
 ## Synthetic data
 

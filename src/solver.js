@@ -35,12 +35,13 @@ export class Solver {
   }
 
   // Resolve a single solve. Each call carries a unique id so its promise is
-  // matched to the matching response.
-  solve({ depot, K, C }) {
+  // matched to the matching response. `fleet` is a per-vehicle capacity array;
+  // the legacy {K, C} homogeneous form still works (K identical vehicles).
+  solve({ depot, K, C, fleet }) {
     const id = ++this._seq;
     return new Promise((resolve) => {
       this._pending.set(id, resolve);
-      this.worker.postMessage({ type: 'solve', payload: { depot, K, C }, id });
+      this.worker.postMessage({ type: 'solve', payload: { depot, K, C, fleet }, id });
     });
   }
 }

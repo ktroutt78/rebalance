@@ -26,16 +26,16 @@ const norm = (s) => s.replace(/\s+/g, ' ').trim();
 // Exact verbatim fragments (must appear character-for-character).
 const INTRO = [
   'Bike-share operators constantly move bikes between stations, by truck and trailer, often overnight. They take them from stations that fill up and deliver them to stations that run empty, so riders find a bike (and an open dock) when they need one. This is an interactive look at that problem, using a day of real Citi Bike trip data for Manhattan.',
-  'Each dot is a station. Blue means a surplus: more bikes arrive than leave, so they pile up and need picking up. Red means a deficit: more bikes leave than arrive, so the station runs short and needs bikes dropped off. The lines are truck routes carrying bikes from the blue stations to the red ones.',
-  'Click a truck, a station, or a station in the ranking to focus it. Drag the sliders to change how many trucks you have and how much each can carry, then watch the routes re-solve.',
+  'Each dot is a station. Blue means a surplus: more bikes arrive than leave, so they pile up and need picking up. Red means a deficit: more bikes leave than arrive, so the station runs short and needs bikes dropped off. The lines are vehicle routes carrying bikes from the blue stations to the red ones.',
+  'Click a vehicle, a station, or a station in the ranking to focus it. Adjust the fleet — bike trailers that carry 3, cargo vans that carry 12, box trucks that carry 30 — then watch the routes re-solve.',
   'The routing is solved from scratch. No mapping API does the optimization. Built by Keith Troutt with Claude Code.',
 ];
 const ABOUT = [
   'The problem. This is a capacitated pickup-and-delivery routing problem, a cousin of the traveling salesman problem. Trucks start at a depot, pick up bikes from surplus stations, drop them at deficit ones, and return, without ever carrying more than their capacity. The goal is to satisfy every station\'s need with the least total driving. It\'s the same problem Citi Bike\'s operations team actually solves. The research-grade version uses integer programming for exact answers, while this tool uses a faster heuristic so it can re-solve interactively as you change the inputs.',
-  'The data. Station locations and demand come from a representative weekday of real Citi Bike trips. A station\'s demand is its net flow, meaning bikes arriving minus bikes leaving over the day. Stations that stay one-directional (always emptying or always filling) are the ones that need a truck. Balanced stations barely register.',
-  'Reading a focused truck. Click a truck to follow it. The load profile chart shows its inventory at every stop, from depot to depot, against its capacity. When a bar hits the ceiling, the truck is full, which is often why its route loops back: it can\'t pick up more until it drops some off. Drag across the chart to scrub the truck along its route and read its exact load at each stop.',
+  'The data. Station locations and demand come from a representative weekday of real Citi Bike trips. A station\'s demand is its net flow, meaning bikes arriving minus bikes leaving over the day. Stations that stay one-directional (always emptying or always filling) are the ones that need a visit. Balanced stations barely register. Real Citi Bike rebalancing uses everything from 3-bike trailers to box trucks carrying a few dozen bikes, and this models that mix: trailers carrying 3, cargo vans carrying 12, box trucks carrying 30. The fleet finder prices each option with rough cost estimates, so the dollar figures are illustrative, not quotes.',
+  'Reading a focused vehicle. Click a vehicle to follow it. The load profile chart shows its inventory at every stop, from depot to depot, against its capacity. When a bar hits the ceiling, the vehicle is full, which is often why its route loops back: it can\'t pick up more until it drops some off. Drag across the chart to scrub the vehicle along its route and read its exact load at each stop.',
   'Net flow by hour. Click a station to see its imbalance across the day. Many stations swing, with a surplus in the morning and a deficit in the evening. That commuter pattern is what creates the whole problem.',
-  'A finding. Adding trucks doesn\'t always help. Past a point, splitting the work into more routes can increase total distance and even leave stations unserved. It\'s a limit of the cluster-first approach, visible if you push the truck slider up.',
+  'A finding. Adding vehicles doesn\'t always help. Past a point, splitting the work into more routes can increase total distance and even leave stations unserved. It\'s a limit of the cluster-first approach, visible if you keep growing the fleet.',
 ];
 
 // --- first-load card shows on load ---
@@ -83,7 +83,7 @@ check(!aboutText.includes('The routing solver is hand-written'), 'redundant cred
 // Section labels are bold.
 const boldLabels = await page.evaluate(() =>
   Array.from(document.querySelectorAll('#about-overlay .info-card strong')).map((s) => s.textContent));
-for (const label of ['The problem.', 'The data.', 'Reading a focused truck.', 'Net flow by hour.', 'A finding.']) {
+for (const label of ['The problem.', 'The data.', 'Reading a focused vehicle.', 'Net flow by hour.', 'A finding.']) {
   check(boldLabels.includes(label), `section label bold: "${label}"`);
 }
 

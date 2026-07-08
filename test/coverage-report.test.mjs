@@ -1,6 +1,7 @@
-// Stage 1 — honest coverage reporting. At a high truck count the cluster-first
-// heuristic strands stations; the panel must report the TRUE served/unserved
-// counts (not claim full coverage) and the map must flag the missed stations.
+// Stage 1 — honest coverage reporting. A fleet of small vehicles can't serve
+// big stations (service is atomic); the panel must report the TRUE
+// served/unserved counts (not claim full coverage) and the map must flag the
+// missed stations.
 import { chromium } from 'playwright';
 
 const URL = process.env.SMOKE_URL || 'http://localhost:5174/';
@@ -20,7 +21,8 @@ await page.waitForFunction(
 let fails = 0;
 const check = (c, m, x) => { console.log(`${c ? '✓' : '✗'} ${m}${x ? ` (${x})` : ''}`); if (!c) fails++; };
 
-// Default (K=4, C=30) serves everything → positive message, no unserved.
+// Default fleet (the finder's recommendation) serves everything → positive
+// message, no unserved, and no shift warning.
 const dflt = await page.evaluate(() => ({
   status: document.getElementById('solve-status').textContent,
   warn: document.getElementById('solve-status').classList.contains('warn'),
@@ -29,9 +31,18 @@ const dflt = await page.evaluate(() => ({
 check(dflt.unserved === 0 && !dflt.warn, 'default solution serves all stations', dflt.status);
 check(/All \d+ imbalanced stations served/.test(dflt.status), 'positive message when fully covered');
 
-// Crank K to 8 — the heuristic strands at least one station.
-await page.evaluate(() => { const k = document.getElementById('k-slider'); k.value = '8'; k.dispatchEvent(new Event('input', { bubbles: true })); });
-await page.waitForFunction(() => document.getElementById('k-val').textContent === '8', { timeout: 5000 });
+// Swap to a trailers-only fleet — 3-bike trailers cannot serve big stations,
+// so the report must state the (large) true shortfall.
+await page.evaluate(() => {
+  const step = (type, delta, times) => {
+    for (let i = 0; i < times; i++)
+      document.querySelector(`.fleet-row[data-type="${type}"] .fleet-btn[data-delta="${delta}"]`).click();
+  };
+  step('trailer', '1', 1); // 3 → 4
+  step('truck', '-1', 3); // 3 → 0
+  step('van', '-1', 1); // 1 → 0
+});
+await page.waitForFunction(() => document.getElementById('fleet-total').textContent === '4', { timeout: 5000 });
 await page.waitForFunction(() => window.__rebalance.unserved().length > 0, { timeout: 8000 }).catch(() => {});
 
 const hi = await page.evaluate(() => {
@@ -49,7 +60,7 @@ const hi = await page.evaluate(() => {
     unserved: r.unserved(),
   };
 });
-check(hi.unserved.length > 0, 'high-K solution leaves stations unserved', `${hi.unserved.length} missed`);
+check(hi.unserved.length > 0, 'trailers-only fleet leaves stations unserved', `${hi.unserved.length} missed`);
 check(hi.warn, 'status flips to a warning (not "all served")');
 check(!/All \d+ imbalanced stations served/.test(hi.status), 'no false full-coverage claim', hi.status);
 check(new RegExp(`${hi.unserved.length} of ${hi.demanding} stations unserved`).test(hi.status), 'states the true shortfall plainly', hi.status);

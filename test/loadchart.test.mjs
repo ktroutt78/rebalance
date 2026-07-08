@@ -42,19 +42,25 @@ check(
 await page.evaluate(() => document.querySelector('#speed-buttons button[data-speed="0.1"]').click());
 check((await page.evaluate(() => window.__rebalance.anim().speed)) === 0.1, 'speed control sets 0.1× crawl');
 
-// --- focus the capacity-reaching truck; verify load chart ---
+// --- focus the vehicle that gets closest to ITS OWN capacity; verify load chart ---
 const info = await page.evaluate(() => {
   const r = window.__rebalance.routes();
   let best = r[0], mx = -1;
   for (const x of r) {
-    const m = Math.max(...x.waypoints.map((w) => w.load));
+    const cap = window.__rebalance.capacityOf(x.truckIndex);
+    if (!cap) continue;
+    const m = Math.max(...x.waypoints.map((w) => w.load)) / cap;
     if (m > mx) { mx = m; best = x; }
   }
   window.__rebalance.focusTruck(best.truckIndex);
-  return { loads: best.waypoints.map((w) => w.load), n: best.waypoints.length };
+  return {
+    loads: best.waypoints.map((w) => w.load),
+    n: best.waypoints.length,
+    cap: window.__rebalance.capacityOf(best.truckIndex),
+  };
 });
 await page.waitForTimeout(300);
-const C = 30;
+const C = info.cap; // the focused vehicle's OWN capacity (mixed fleet)
 check(info.loads[0] === 0 && info.loads.at(-1) === 0, 'load starts & ends at depot = 0');
 check(info.loads.every((l) => l >= 0 && l <= C), 'load never exceeds [0,C]', `max ${Math.max(...info.loads)}`);
 const bars = await page.evaluate(() => document.querySelectorAll('#a-load svg .load-bar').length);

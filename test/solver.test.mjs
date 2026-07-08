@@ -111,5 +111,72 @@ for (const K of [1, 2, 4, 6, 8]) {
   }
 }
 
+// --- mixed fleet: per-vehicle capacities ---
+console.log('\nmixed fleets:');
+const FLEETS = [
+  [30, 30, 12, 3], // default-ish mix
+  [30, 12, 12, 3, 3],
+  [3, 3, 3, 3], // trailers only — big stations must be reported unserved
+  [12, 3],
+  [30],
+];
+for (const fleet of FLEETS) {
+  self.onmessage({ data: { type: 'solve', payload: { depot, fleet } } });
+  const { routes, metrics, unsatisfiedIdxs } = captured.payload;
+  const tag = `fleet=[${fleet}]`;
+
+  // (5) one route per vehicle, tagged with its own capacity.
+  assert(routes.length === fleet.length, `${tag} produced ${routes.length} routes`);
+  for (const t of metrics.perTruck) {
+    assert(t.capacity === fleet[t.truckIndex], `${tag} truck ${t.truckIndex} capacity ${t.capacity} != ${fleet[t.truckIndex]}`);
+  }
+
+  // (6) capacity invariant against each vehicle's OWN capacity, and no vehicle
+  // visits a station whose |demand| it can't carry (service is atomic).
+  const seen = new Set();
+  for (const r of routes) {
+    const cap = fleet[r.truckIndex];
+    let load = 0;
+    for (const id of r.stationIdxs) {
+      const d = demandById.get(id);
+      assert(Math.abs(d) <= cap, `${tag} truck ${r.truckIndex} (cap ${cap}) visits station ${id} with |demand| ${Math.abs(d)}`);
+      load += d;
+      assert(load >= -1e-9 && load <= cap + 1e-9, `${tag} truck ${r.truckIndex} load ${load} out of [0,${cap}]`);
+      assert(!seen.has(id), `${tag} station ${id} served twice`);
+      seen.add(id);
+    }
+  }
+
+  // (7) coverage accounting: served + unserved partitions the demanders, and
+  // every station too big for the whole fleet is reported unserved.
+  const maxCap = Math.max(...fleet);
+  const demanders = stations.filter((s) => s.demand !== 0);
+  assert(
+    metrics.satisfied + metrics.unsatisfied === demanders.length,
+    `${tag} served ${metrics.satisfied} + unserved ${metrics.unsatisfied} != ${demanders.length}`
+  );
+  const unsetSet = new Set(unsatisfiedIdxs);
+  for (const s of demanders) {
+    if (Math.abs(s.demand) > maxCap) {
+      assert(unsetSet.has(s.idx), `${tag} station ${s.idx} (|demand| ${Math.abs(s.demand)} > max cap ${maxCap}) not reported unserved`);
+    }
+  }
+
+  console.log(
+    `${tag.padEnd(22)} → dist ${(metrics.totalDistance / 1000).toFixed(1)}km  served ${metrics.satisfied}/${demanders.length}  unsat ${metrics.unsatisfied}  moved ${metrics.bikesMoved}`
+  );
+}
+
+// (8) legacy {K, C} equals an explicit homogeneous fleet.
+self.onmessage({ data: { type: 'solve', payload: { depot, K: 4, C: 30 } } });
+const legacy = captured.payload;
+self.onmessage({ data: { type: 'solve', payload: { depot, fleet: [30, 30, 30, 30] } } });
+const explicit = captured.payload;
+assert(
+  legacy.metrics.totalDistance === explicit.metrics.totalDistance &&
+    legacy.metrics.satisfied === explicit.metrics.satisfied,
+  `legacy K/C solve differs from explicit homogeneous fleet`
+);
+
 console.log(failures === 0 ? '\n✓ all invariants hold' : `\n✗ ${failures} assertion(s) failed`);
 process.exit(failures === 0 ? 0 : 1);
