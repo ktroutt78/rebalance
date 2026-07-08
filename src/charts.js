@@ -177,18 +177,29 @@ export function finderChartSVG(
     rightGuide = null, // { value, label } — horizontal reference on the right axis
   } = {}
 ) {
-  const W = 560, H = 290;
+  const W = 560, H = 252; // short enough that the modal never scrolls at 900px
   const mT = 26, mR = 50, mB = 46, mL = 50;
   const plotW = W - mL - mR;
   const plotH = H - mT - mB;
   const xMin = points[0].x;
   const xMax = points[points.length - 1].x;
 
+  const STEPS = 4; // shared gridlines; both axes tick at these four rows
   const lefts = points.map((p) => p.left);
   const rights = points.map((p) => p.right);
   const leftMax = niceMax(Math.max(1e-6, ...lefts));
-  // Keep the right-axis guide on-scale so the reference line always shows.
-  const rightMax = Math.max(1, niceMax(Math.max(...rights, rightGuide ? rightGuide.value : 0)));
+  // Right axis: keep the guide on-scale, and when there IS a guide, pick the
+  // scale so the guide lands EXACTLY on a gridline (steps of guide/4 doubled
+  // until the data fits) — otherwise the shared gridlines tick the right axis
+  // at junk values (6.3, 12.5, …) and the reference floats unreadably between
+  // them, the classic dual-axis failure.
+  let rightMax = Math.max(1, niceMax(Math.max(...rights, rightGuide ? rightGuide.value : 0)));
+  if (rightGuide && rightGuide.value > 0) {
+    const dataMax = Math.max(...rights, rightGuide.value);
+    let step = rightGuide.value / STEPS;
+    while (step * STEPS < dataMax) step *= 2;
+    rightMax = step * STEPS;
+  }
 
   const xFor = (x) => mL + ((x - xMin) / Math.max(1, xMax - xMin)) * plotW;
   const yL = (v) => mT + plotH - (v / leftMax) * plotH;
@@ -199,7 +210,6 @@ export function finderChartSVG(
   let grid = '';
   let leftTicks = '';
   let rightTicks = '';
-  const STEPS = 4;
   for (let i = 0; i <= STEPS; i++) {
     const y = mT + (i / STEPS) * plotH;
     grid += `<line class="finder-grid" x1="${f(mL)}" y1="${f(y)}" x2="${f(mL + plotW)}" y2="${f(y)}"/>`;

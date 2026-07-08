@@ -135,12 +135,12 @@ export function initFinder({ solve, getContext, onApply }) {
     const workable = results.filter((r) => r.unserved === 0 && r.fits === 0);
     const recommended = workable.length ? workable.reduce((a, b) => (better(a, b) <= 0 ? a : b)) : null;
 
-    // The headline comparison: the best box-trucks-only plan that's workable.
+    // The box-trucks-only comparison lives in the caption (a fixed fact, not a
+    // stat card — the second card tracks whatever column is selected).
     const trucksOnly = workable.filter((r) => r.size === (r.counts.truck || 0));
     const bestTrucksOnly = trucksOnly.length
       ? trucksOnly.reduce((a, b) => (better(a, b) <= 0 ? a : b))
       : null;
-    const saving = recommended && bestTrucksOnly ? bestTrucksOnly.cost - recommended.cost : null;
 
     body.innerHTML = `
       <div class="finder-cards">
@@ -154,13 +154,9 @@ export function initFinder({ solve, getContext, onApply }) {
           }</span>
         </div>
         <div class="finder-card-stat">
-          <span class="finder-stat-label">Box trucks only?</span>
-          <span class="finder-stat-value">${saving != null ? formatMoney(saving) + ' more' : `> ${SHIFT.hours} h`}</span>
-          <span class="finder-stat-sub">${
-            saving != null
-              ? `the cheapest all-truck plan costs ${formatMoney(bestTrucksOnly.cost)}`
-              : `no all-truck fleet finishes the night's work within the ${SHIFT.hours}-hour shift`
-          }</span>
+          <span class="finder-stat-label" id="finder-sel-label">Selected fleet</span>
+          <span class="finder-stat-value" id="finder-sel-value">—</span>
+          <span class="finder-stat-sub" id="finder-sel-sub">click a column to compare</span>
         </div>
       </div>
       <div class="finder-chart" id="finder-chart">
@@ -182,16 +178,49 @@ export function initFinder({ solve, getContext, onApply }) {
         ${recommended ? `<span class="finder-legend-rec">◎ recommended (${recommended.size})</span>` : ''}
       </div>
       <div class="finder-pick" id="finder-pick"></div>
-      <p class="finder-caption">${captionFor(results.length, points, recommended)}</p>
+      <p class="finder-caption">${captionFor(results.length, recommended, bestTrucksOnly)}</p>
     `;
 
-    // Clicking a column SELECTS that size's best mix — the pick bar spells out
-    // exactly what it is (mix, dollars, coverage, shift fit), and only the
-    // explicit apply button puts it on the map. The recommendation starts
-    // selected so there's always a concrete plan on offer.
+    // Clicking a column SELECTS that size's best mix: the second stat card and
+    // the pick bar both update to spell out exactly what it is (mix, dollars,
+    // coverage, shift fit) and WHY it beat the other mixes of that size, and
+    // only the explicit apply button puts it on the map. The recommendation
+    // starts selected so there's always a concrete plan on offer.
     const svg = body.querySelector('.finder-svg');
     const pickEl = body.querySelector('#finder-pick');
+    const selLabel = body.querySelector('#finder-sel-label');
+    const selValue = body.querySelector('#finder-sel-value');
+    const selSub = body.querySelector('#finder-sel-sub');
     let selectedSize = recommended ? recommended.size : points[points.length - 1]?.size ?? null;
+
+    // Justify the winner against its same-size rivals: every mix of that size
+    // was actually solved, so name the runner-up and the cheaper mix that got
+    // rejected (and the reason it failed).
+    const whyPick = (pick) => {
+      const rivals = results.filter((r) => r.size === pick.size && r !== pick);
+      const n = rivals.length + 1;
+      if (pick.unserved > 0 || pick.fits !== 0) {
+        return `All ${n} possible ${pick.size}-vehicle mixes were solved; none serves every station within the shift, and this one comes closest.`;
+      }
+      const parts = [
+        `All ${n} possible ${pick.size}-vehicle mixes were solved; this is the cheapest that serves every station within the shift.`,
+      ];
+      const nextBest = rivals
+        .filter((r) => r.unserved === 0 && r.fits === 0)
+        .sort((a, b) => a.cost - b.cost)[0];
+      if (nextBest) parts.push(`Next best: ${mixWords(nextBest.counts)} at ${formatMoney(nextBest.cost)}.`);
+      const cheaper = rivals.filter((r) => r.cost < pick.cost - 0.5).sort((a, b) => a.cost - b.cost)[0];
+      if (cheaper) {
+        const flaw =
+          cheaper.unserved > 0
+            ? `leaves ${cheaper.unserved} station${cheaper.unserved === 1 ? '' : 's'} unserved`
+            : `needs a ${cheaper.maxHours.toFixed(1)} h route`;
+        parts.push(
+          `${mixWords(cheaper.counts)} would save ${formatMoney(pick.cost - cheaper.cost)} but ${flaw}.`
+        );
+      }
+      return parts.join(' ');
+    };
 
     const renderPick = () => {
       const pick = selectedSize != null ? bestAt.get(selectedSize) : null;
@@ -204,11 +233,25 @@ export function initFinder({ solve, getContext, onApply }) {
       }
       const workable = pick.unserved === 0 && pick.fits === 0;
       const coverage = pick.unserved === 0 ? 'full coverage' : `${pick.unserved} stations unserved`;
-      const shiftNote = `longest route ${pick.maxHours.toFixed(1)} h${pick.fits === 0 ? '' : ` — over the ${SHIFT.hours} h shift`}`;
+      const shiftNote = `longest route ${pick.maxHours.toFixed(1)} h${
+        pick.fits === 0 ? '' : ` (over the ${SHIFT.hours} h shift)`
+      }`;
+
+      // Second stat card tracks the selection for at-a-glance comparison
+      // against the recommendation in card one.
+      selLabel.textContent =
+        recommended && pick.size === recommended.size ? 'Selected fleet (the recommendation)' : 'Selected fleet';
+      selValue.textContent = formatMoney(pick.cost);
+      selValue.classList.toggle('warn', !workable);
+      selSub.textContent = `${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${coverage} · ${
+        workable ? `fits the ${SHIFT.hours} h shift` : shiftNote
+      }`;
+
       pickEl.innerHTML = `
         <div class="finder-pick-info${workable ? '' : ' warn'}">
           <strong>${pick.size} vehicle${pick.size === 1 ? '' : 's'} · ${mixWords(pick.counts)}</strong>
           <span class="finder-pick-stats">${formatMoney(pick.cost)} · ${coverage} · ${shiftNote}</span>
+          <span class="finder-pick-why">${whyPick(pick)}</span>
         </div>
         <button type="button" id="finder-apply" class="info-btn finder-apply-btn">Put on the map</button>
       `;
@@ -229,16 +272,17 @@ export function initFinder({ solve, getContext, onApply }) {
     renderPick();
   }
 
-  function captionFor(mixCount, points, recommended) {
-    const cap = `Every point is the best of ${mixCount} solved fleet mixes at that size — full coverage first, then routes that fit the ${SHIFT.hours}-hour overnight shift, then dollars. `;
+  function captionFor(mixCount, recommended, bestTrucksOnly) {
+    const cap = `Every point is the best of ${mixCount} solved fleet mixes at that size (up to 4 of each type, ${FLEET_MAX_TOTAL} vehicles total), judged by coverage first, then the ${SHIFT.hours}-hour overnight shift, then dollars. `;
     if (!recommended) {
-      return cap + `Nothing up to ${FLEET_MAX_TOTAL} vehicles serves every station within the shift. The dashed line shows how far over each size runs.`;
+      return cap + `Nothing up to ${FLEET_MAX_TOTAL} vehicles serves every station within the shift; the dashed line shows how far over each size runs.`;
     }
+    const trucksNote = bestTrucksOnly
+      ? `The cheapest box-trucks-only plan runs ${formatMoney(bestTrucksOnly.cost)}.`
+      : `No fleet of box trucks alone finishes within the shift.`;
     return (
       cap +
-      `Small fleets are cheap on paper but their routes blow past the shift line; ${mixWords(recommended.counts)} (${formatMoney(
-        recommended.cost
-      )}) is the cheapest plan that actually gets the night's work done. Click a column to preview that size's best mix.`
+      `Small fleets are cheap on paper but their routes blow past the shift line. ${trucksNote} Click a column to preview that size's best mix.`
     );
   }
 

@@ -116,15 +116,30 @@ if (expectedRec) {
   check(cards.subs[0] === words, 'card 1 names the recommended mix', `${cards.subs[0]} vs ${words}`);
 }
 
-// Card 2: trucks-only comparison, consistent with the sweep.
+// Card 2 tracks the SELECTION and opens on the recommendation.
+const fmt = (v) => `$${Math.round(v).toLocaleString('en-US')}`;
+check(
+  cards.values[1] === (expectedRec ? fmt(expectedRec.cost) : '—'),
+  'card 2 (selected fleet) opens on the recommendation',
+  cards.values[1]
+);
+
+// The trucks-only fact moved to the caption.
+const captionText = await page.evaluate(() => document.querySelector('.finder-caption')?.textContent || '');
 const trucksOnly = workable.filter((r) => r.m[1] === 0 && r.m[2] === 0);
-if (trucksOnly.length) {
-  const bestTO = trucksOnly.reduce((a, b) => (a.cost <= b.cost ? a : b));
-  const saving = Math.round(bestTO.cost - expectedRec.cost);
-  check(cards.values[1] === `$${saving.toLocaleString('en-US')} more`, 'card 2 prices the trucks-only premium', cards.values[1]);
-} else {
-  check(cards.values[1] === `> ${SHIFT_H} h`, 'card 2 reports trucks-only busts the shift', cards.values[1]);
-}
+check(
+  trucksOnly.length ? captionText.includes('box-trucks-only plan runs') : captionText.includes('box trucks alone'),
+  'caption states the box-trucks-only verdict'
+);
+
+// No em dashes anywhere in the modal copy.
+const modalText = await page.evaluate(() => document.querySelector('.finder-card')?.innerText || '');
+check(!modalText.includes('—'), 'no em dashes in the finder modal');
+
+// Right axis ticks align with the shift guide (8 sits on a gridline).
+const rightTicks = await page.evaluate(() =>
+  Array.from(document.querySelectorAll('.finder-axis-r')).map((e) => e.textContent));
+check(rightTicks.includes(String(SHIFT_H)), 'right axis ticks include the 8 h shift line', rightTicks.join(','));
 
 // Chart shape: 8 hit columns, both lines, shift guide, recommended halo.
 const chartShape = await page.evaluate(() => ({
@@ -179,6 +194,23 @@ const otherPick = await page.evaluate(() => ({
 }));
 check(otherPick.text.startsWith(`${otherSize} vehicle`), 'pick bar describes the clicked size', otherPick.text);
 check(otherPick.selectedCol === String(otherSize), 'clicked column is marked selected', otherPick.selectedCol);
+
+// The selected-fleet card follows the click, priced per the independent sweep.
+const bestOfSize = (size) =>
+  truth.out
+    .filter((r) => r.size === size)
+    .sort(
+      (a, b) =>
+        a.unserved - b.unserved ||
+        (a.maxH <= SHIFT_H ? 0 : 1) - (b.maxH <= SHIFT_H ? 0 : 1) ||
+        a.cost - b.cost
+    )[0];
+const selCard = await page.evaluate(() => document.getElementById('finder-sel-value')?.textContent);
+check(selCard === fmt(bestOfSize(otherSize).cost), 'selected-fleet card updates with the click', selCard);
+
+// The pick bar justifies the winner against its same-size rivals.
+const why = await page.evaluate(() => document.querySelector('.finder-pick-why')?.textContent || '');
+check(/All \d+ possible \d+-vehicle mixes were solved/.test(why), 'pick bar explains why the mix won', why.slice(0, 70));
 // Back to the recommended size, then confirm via the apply button.
 await page.evaluate((k) => {
   document.querySelector(`.finder-hit[data-k="${k}"]`).dispatchEvent(new MouseEvent('click', { bubbles: true }));
