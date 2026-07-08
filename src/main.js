@@ -187,7 +187,9 @@ async function resolve() {
   const types = buildFleet(state.fleet);
   const result = await state.solver.solve({ depot: state.depot, fleet: types.map((t) => t.capacity) });
   state.fleetTypes = types; // commit alongside the solution they produced
-  state.model = buildAnimationModel(result.routes);
+  // Attach each vehicle's type record so the layers can size marker/route/trail
+  // by type (box truck reads bigger than a trailer on the map).
+  state.model = buildAnimationModel(result.routes).map((m) => ({ ...m, vehicle: types[m.truckIndex] }));
   state.metrics = result.metrics;
   state.unservedIdxs = new Set(result.unsatisfiedIdxs || []); // honest coverage → map treatment
   state.routes = result.routes; // keep raw routes: their waypoints[].load drives the load chart
@@ -463,8 +465,9 @@ function exposeDebugHooks() {
       if (i < 0 || i >= m.stopLoads.length) return null;
       return `${m.stopLoads[i]}/${state.fleetTypes[sel.truckIdx]?.capacity ?? 0}`;
     },
-    // Truck marker radius as configured on the live layer — a constant now, so it
-    // never varies with load. Lets a test confirm the marker holds one size.
+    // The focused vehicle's marker radius as the live layer resolves it — fixed
+    // per vehicle (it encodes TYPE), so it never varies with load. Lets a test
+    // confirm the marker holds one size across a whole route.
     markerRadius: () => {
       const sel = getSelection();
       const focus = {
@@ -473,7 +476,11 @@ function exposeDebugHooks() {
         stationToTruck: state.stationToTruck,
         hoveredStation: state.hoveredStation,
       };
-      return truckMarkerLayer(state.model, state.currentTime, focus).props.getRadius;
+      const layer = truckMarkerLayer(state.model, state.currentTime, focus);
+      const g = layer.props.getRadius;
+      if (typeof g !== 'function') return g;
+      const d = layer.props.data.find((t) => (sel.truckIdx != null ? t.truckIndex === sel.truckIdx : true));
+      return d ? g(d) : null;
     },
     playheadX: () => document.querySelector('#a-load svg .load-playhead')?.getAttribute('x'),
     uiState: () => ({ scrubbing: state.scrubbing, hoveredStation: state.hoveredStation }),

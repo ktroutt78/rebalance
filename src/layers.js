@@ -108,6 +108,8 @@ export function buildAnimationModel(routes) {
       loads,
       stopTimes,
       stopLoads: wp.map((w) => w.load), // per-stop running load (matches the load chart bars)
+      // main.js annotates each entry with `vehicle` (its VEHICLE_TYPES record)
+      // after building — marker/route/trail sizes encode the type visually.
     });
   }
   return model;
@@ -194,14 +196,16 @@ export function routeLineLayer(model, focus = NO_FOCUS) {
     const a = !hasFocus ? 125 : d.truckIndex === focusedTruck ? 205 : 30;
     return [mute(d.color[0]), mute(d.color[1]), mute(d.color[2]), a];
   };
+  // Line weight encodes vehicle type (box truck heavy → trailer hairline).
+  const baseWidth = (d) => d.vehicle?.routeWidth ?? 1.0;
   return new PathLayer({
     id: 'routes',
     data: model,
     getPath: (d) => d.path,
     getColor: colorOf,
-    getWidth: (d) => (hasFocus && d.truckIndex === focusedTruck ? 1.9 : 1.0),
+    getWidth: (d) => (hasFocus && d.truckIndex === focusedTruck ? baseWidth(d) * 1.9 : baseWidth(d)),
     widthUnits: 'pixels',
-    widthMinPixels: 1,
+    widthMinPixels: 0.5,
     capRounded: true,
     jointRounded: true,
     parameters: { depthTest: false },
@@ -227,7 +231,10 @@ export function tripsLayer(model, currentTime, focus = NO_FOCUS) {
     getTimestamps: (d) => d.timestamps,
     getColor: colorOf,
     opacity: 1,
-    widthMinPixels: 3,
+    // Trail weight encodes vehicle type, matching the route line underneath.
+    getWidth: (d) => d.vehicle?.trailWidth ?? 3,
+    widthUnits: 'pixels',
+    widthMinPixels: 1.5,
     jointRounded: true,
     capRounded: true,
     trailLength: ANIM.trailLength,
@@ -253,15 +260,19 @@ export function sampleTrucks(model, currentTime) {
       load: t.loads[seg], // carrying the load it left waypoint `seg` with
       color: t.color,
       truckIndex: t.truckIndex,
+      vehicle: t.vehicle, // type record → marker radius + number size
     });
   }
   return out;
 }
 
-// --- Moving truck marker: a small WHITE dot with a thin colored ring (route
-// color) and the truck number inside (truckNumberLayer). ONE fixed radius for
-// every truck at all times — it carries identity, not load. Non-focused trucks
-// dim but keep moving. The ring is the color tie-back to the route. ---
+// --- Moving vehicle marker: a small WHITE dot with a thin colored ring (route
+// color) and the vehicle number inside (truckNumberLayer). Radius encodes the
+// VEHICLE TYPE (box truck > van > trailer), fixed per vehicle at all times — it
+// carries identity + type, never load. Non-focused vehicles dim but keep
+// moving. The ring is the color tie-back to the route. ---
+const markerRadiusOf = (d) => d.vehicle?.radius ?? TRUCK_MARKER_RADIUS;
+
 export function truckMarkerLayer(model, currentTime, focus = NO_FOCUS) {
   const { focusedTruck } = focus;
   const hasFocus = focusedTruck != null;
@@ -273,9 +284,9 @@ export function truckMarkerLayer(model, currentTime, focus = NO_FOCUS) {
     getPosition: (d) => d.position,
     getFillColor: (d) => [255, 255, 255, dim(d) ? 70 : 245], // white dot
     getLineColor: (d) => [d.color[0], d.color[1], d.color[2], dim(d) ? 90 : 255], // route-color ring
-    getRadius: TRUCK_MARKER_RADIUS,
+    getRadius: markerRadiusOf,
     radiusUnits: 'pixels',
-    radiusMinPixels: TRUCK_MARKER_RADIUS,
+    radiusMinPixels: 5,
     stroked: true,
     getLineWidth: 2,
     lineWidthUnits: 'pixels',
@@ -300,7 +311,8 @@ export function truckNumberLayer(model, currentTime, focus = NO_FOCUS) {
     getPosition: (d) => d.position,
     getText: (d) => String(d.truckIndex + 1),
     getColor: (d) => [12, 18, 24, dim(d) ? 90 : 255],
-    getSize: 12,
+    // Digit scales with the marker so it fills a box truck and fits a trailer.
+    getSize: (d) => Math.round(markerRadiusOf(d) * 1.3),
     sizeUnits: 'pixels',
     getTextAnchor: 'middle',
     getAlignmentBaseline: 'center',
@@ -325,8 +337,8 @@ export function truckLoadLabelLayer(model, currentTime, capacity, focus = NO_FOC
   if (!truck || !tModel) return null;
   const sl = tModel.stopLoads;
   const load = sl && stopIndex >= 0 && stopIndex < sl.length ? sl[stopIndex] : truck.load;
-  // Sit the chip just clear of the fixed-size marker.
-  const radius = TRUCK_MARKER_RADIUS;
+  // Sit the chip just clear of this vehicle's own marker size.
+  const radius = markerRadiusOf(truck);
   return new TextLayer({
     id: 'truck-load',
     data: [truck],

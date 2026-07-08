@@ -205,10 +205,36 @@ input[type='range'] {
 }
 .fleet-name {
   color: var(--text);
+  display: flex;
+  align-items: center;
 }
 .fleet-name small {
   color: var(--text-dim);
   font-size: 11px;
+  margin-left: 4px;
+}
+
+/* Vehicle-size key: white dots matching the map markers (type = size). The
+   stepper rows double as the legend for the marker/route sizing on the map. */
+.vdot {
+  display: inline-block;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #fff;
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  margin-right: 8px;
+}
+.vdot.truck {
+  width: 13px;
+  height: 13px;
+}
+.vdot.van {
+  width: 10px;
+  height: 10px;
+}
+.vdot.trailer {
+  width: 7px;
+  height: 7px;
 }
 .fleet-stepper {
   display: flex;

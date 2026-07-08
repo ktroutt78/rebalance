@@ -32,10 +32,14 @@ export const C_RANGE = { min: 10, max: 40, default: 30 }; // bikes per truck
 // Costs are rough per-shift estimates (dispatch/driver fixed + running $/mi);
 // invented but plausible, and only their RATIOS steer the fleet finder.
 // Declaration order is big → small so vehicle 1 is always the biggest.
+// radius/routeWidth/trailWidth encode TYPE visually on the map: a box truck is
+// literally bigger than a trailer — marker, route line, and trail all scale.
+// Fixed per vehicle at all times, so size never reads as load (that stays the
+// load chart's job).
 export const VEHICLE_TYPES = [
-  { id: 'truck', name: 'Box truck', short: 'Truck', capacity: 30, fixedCost: 110, costPerMile: 2.2, max: 4 },
-  { id: 'van', name: 'Cargo van', short: 'Van', capacity: 12, fixedCost: 60, costPerMile: 1.25, max: 4 },
-  { id: 'trailer', name: 'Bike trailer', short: 'Trailer', capacity: 3, fixedCost: 20, costPerMile: 0.5, max: 4 },
+  { id: 'truck', name: 'Box truck', short: 'Truck', capacity: 30, fixedCost: 110, costPerMile: 2.2, max: 4, radius: 11.5, routeWidth: 1.6, trailWidth: 4.5 },
+  { id: 'van', name: 'Cargo van', short: 'Van', capacity: 12, fixedCost: 60, costPerMile: 1.25, max: 4, radius: 9, routeWidth: 1.0, trailWidth: 3 },
+  { id: 'trailer', name: 'Bike trailer', short: 'Trailer', capacity: 3, fixedCost: 20, costPerMile: 0.5, max: 4, radius: 6.5, routeWidth: 0.6, trailWidth: 1.8 },
 ];
 export const FLEET_MAX_TOTAL = 8; // one TRUCK_COLORS entry per vehicle
 // Landing state = the fleet finder's own recommendation at the default depot
@@ -154,10 +158,10 @@ export const MARKER = {
 // Ghost opacity for non-focused routes/trails/trucks (Stage 3).
 export const GHOST_OPACITY = 0.15;
 
-// Moving truck marker radius (pixels). FIXED for every truck at all times — it
-// encodes position + truck identity (white dot + number + colored ring) only.
-// Load is shown by the load profile chart and the on-map text chip, never by
-// marker size. Sized just large enough that a single digit stays legible inside.
+// Fallback moving-marker radius (pixels) when a vehicle has no type (shouldn't
+// happen in practice — VEHICLE_TYPES[].radius is the real source). Marker size
+// encodes VEHICLE TYPE, fixed per vehicle at all times; load is shown by the
+// load profile chart and the on-map text chip, never by marker size.
 export const TRUCK_MARKER_RADIUS = 9;
 
 // Route leg curvature: each straight leg is drawn as a gentle Bézier bow so long

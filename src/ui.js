@@ -27,7 +27,7 @@ export function initFleetControls({ counts, onChange }) {
   wrap.innerHTML = VEHICLE_TYPES.map(
     (t) => `
       <div class="fleet-row" data-type="${t.id}">
-        <span class="fleet-name">${t.name} <small>· ${t.capacity} bikes</small></span>
+        <span class="fleet-name"><i class="vdot ${t.id}"></i>${t.name} <small>· ${t.capacity} bikes</small></span>
         <span class="fleet-stepper">
           <button type="button" class="fleet-btn" data-delta="-1" aria-label="Fewer: ${t.name}">−</button>
           <strong class="fleet-count" data-count="${t.id}">0</strong>
