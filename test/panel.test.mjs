@@ -92,17 +92,21 @@ const truckPanel = await page.evaluate(() => {
   const r = window.__rebalance.routes();
   const t = r.filter((x) => x.stationIdxs.length >= 2).sort((a, b) => b.stationIdxs.length - a.stationIdxs.length)[0];
   window.__rebalance.focusTruck(t.truckIndex);
+  const s2t = window.__rebalance.stationToTruck();
+  const rankRows = Array.from(document.querySelectorAll('#a-rank .rank-row'));
   return {
     eyebrow: document.querySelector('#analytics .a-eyebrow')?.textContent,
     hasLoad: !!document.getElementById('a-load'),
     hasHourly: !!document.getElementById('a-hourly'),
-    ranks: document.querySelectorAll('#a-rank .rank-row').length,
+    ranks: rankRows.length,
+    offRoute: rankRows.filter((r) => s2t.get(Number(r.dataset.idx)) !== t.truckIndex).length,
     hasDeselect: !!document.querySelector('#analytics .a-deselect'),
   };
 });
 check(truckPanel.eyebrow === 'Focused vehicle', 'truck-focus shows the focused-vehicle header');
 check(truckPanel.hasLoad, 'truck-focus shows the load profile');
 check(truckPanel.ranks > 0, 'truck-focus brings the ranking BACK', `${truckPanel.ranks} rows`);
+check(truckPanel.offRoute === 0, 'truck-focus ranking scoped to that route', `${truckPanel.offRoute} off-route`);
 check(!truckPanel.hasHourly, 'truck-focus has no net-flow chart (distinct from station view)');
 check(truckPanel.hasDeselect, 'truck-focus has the deselect ✕');
 check(await noScroll('#analytics'), 'truck-focus state does not scroll (load profile + ranking fit)');

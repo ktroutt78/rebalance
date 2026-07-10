@@ -24,6 +24,7 @@ import {
   initFleetControls,
   setFleetCounts,
   setFleetHighlight,
+  setTruckSpotlight,
   initDepotPresets,
   setDepotActive,
   initSpeedControl,
@@ -191,11 +192,15 @@ function applyFleet(counts) {
 // Toggle the vehicle-type spotlight. It replaces any focused vehicle/station
 // (a spotlight is a wider question than a single focus), and focusing anything
 // afterwards hands emphasis back to the selection spine (onSelectionChange).
+// A spotlight is a full subject change: the legend rows of that type light up
+// and the analytics panel re-renders filtered to that fleet.
 function setTypeHighlight(typeId) {
   const next = state.highlightType === typeId ? null : typeId;
   if (next) clearSelection();
   state.highlightType = next;
   setFleetHighlight(next);
+  setTruckSpotlight(highlightedTruckSet());
+  renderPanel(getSelection(), panelContext());
   updateSpotlightCamera();
 }
 
@@ -265,6 +270,9 @@ function onSelectionChange(sel) {
     setFleetHighlight(null);
   }
   highlightFocusedTruck(sel.truckIdx);
+  // Re-assert (or clear) the spotlit legend rows — renderMetrics rebuilds the
+  // rows on every solve, which drops their classes.
+  setTruckSpotlight(state.highlightType ? highlightedTruckSet() : null);
   renderPanel(sel, panelContext());
   updateCamera(sel);
 }
@@ -325,6 +333,10 @@ function panelContext() {
     routesByTruck: state.routesByTruck,
     fleetTypes: state.fleetTypes, // per-vehicle type (name + capacity), by truckIndex
     capacityFor: (t) => state.fleetTypes[t]?.capacity ?? 0,
+    // Type spotlight: the panel filters its charts to this fleet when set.
+    highlightType: state.highlightType,
+    highlightedTrucks: highlightedTruckSet(),
+    onClearHighlight: () => state.highlightType && setTypeHighlight(state.highlightType), // toggles off
     onSelectStation: selectStation,
     onClearSelection: clearSelection, // ✕ in the selected-state header → back to default
     // Scrubber (Stage 4): the chart drives the truck's position on the map.

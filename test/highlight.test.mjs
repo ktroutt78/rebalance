@@ -60,6 +60,24 @@ const zoomedIn = await page
 const spotZoom = await page.evaluate(() => window.__rebalance.camera().zoom);
 check(zoomedIn, 'spotlight zooms to fit the type’s routes', `${initialZoom.toFixed(2)} → ${spotZoom.toFixed(2)}`);
 
+// 1b) The spotlight filters the analytics panel + lights the legend rows.
+const spot = await page.evaluate(() => {
+  const set = new Set(window.__rebalance.highlightedTrucks());
+  const s2t = window.__rebalance.stationToTruck();
+  const ranks = Array.from(document.querySelectorAll('#a-rank .rank-row'));
+  return {
+    eyebrow: document.querySelector('#analytics .a-eyebrow')?.textContent,
+    bars: document.querySelectorAll('#a-hourly svg rect').length,
+    rankCount: ranks.length,
+    offFleet: ranks.filter((r) => !set.has(s2t.get(Number(r.dataset.idx)))).length,
+    spotlit: document.querySelectorAll('#truck-breakdown .truck-row.spotlit').length,
+  };
+});
+check(spot.eyebrow === 'Fleet spotlight', 'panel switches to the fleet-spotlight view', spot.eyebrow);
+check(spot.bars === 24, 'spotlight net-flow chart renders (filtered)', `${spot.bars} bars`);
+check(spot.rankCount > 0 && spot.offFleet === 0, 'ranking holds only stations this fleet serves', `${spot.rankCount} rows, ${spot.offFleet} off-fleet`);
+check(spot.spotlit === expectedTrailers.length, 'legend rows of the spotlit type light up', `${spot.spotlit}/${expectedTrailers.length}`);
+
 // 2) Second click toggles the spotlight off (and the camera flies back out).
 await page.evaluate(() => document.querySelector('.fleet-row[data-type="trailer"] .fleet-name').click());
 await page.waitForTimeout(150);
@@ -74,6 +92,21 @@ const zoomedOut = await page
   .then(() => true)
   .catch(() => false);
 check(zoomedOut, 'clearing the spotlight returns the camera to the default view');
+
+// 2b) Toggling off restores the system panel + clears the legend rows.
+const afterOff = await page.evaluate(() => ({
+  eyebrow: document.querySelector('#analytics .a-eyebrow')?.textContent,
+  spotlit: document.querySelectorAll('#truck-breakdown .truck-row.spotlit').length,
+}));
+check(afterOff.eyebrow === 'System overview' && afterOff.spotlit === 0, 'toggle-off restores the system panel + legend', `${afterOff.eyebrow}, ${afterOff.spotlit} spotlit`);
+
+// 2c) ✕ in the spotlight panel exits the spotlight too.
+await page.evaluate(() => document.querySelector('.fleet-row[data-type="trailer"] .fleet-name').click());
+await page.waitForTimeout(150);
+await page.evaluate(() => document.querySelector('#analytics .a-deselect')?.click());
+await page.waitForTimeout(150);
+s = await readState();
+check(s.type === null && s.rows.length === 0, '✕ in the spotlight panel exits the spotlight');
 
 // 3) Spotlight yields to a real selection (focusing a vehicle clears it).
 await page.evaluate(() => document.querySelector('.fleet-row[data-type="truck"] .fleet-name').click());

@@ -2,7 +2,10 @@
 // snapshot. Renders, by mode:
 //   - station selected → station header + hourly chart + the serving truck's load
 //     profile (selected stop highlighted) + ranking,
-//   - truck focused (legend) → truck header + load profile + ranking,
+//   - truck focused (legend) → truck header + load profile + ranking scoped to
+//     that route's stations,
+//   - type spotlight (fleet-panel type name) → fleet header + hourly + ranking,
+//     both filtered to the stations that fleet serves,
 //   - nothing → system overview + system hourly + ranking.
 // The load profile surfaces the solver's per-stop running inventory (it does NOT
 // recompute it).
@@ -53,10 +56,24 @@ export function renderPanel(sel, ctx) {
   //                                viewer navigates to other stations via the map.
   const selected = station != null || truckIdx != null;
 
+  // Vehicle-type spotlight: no selection in the spine, but the panel should
+  // still answer for the spotlit fleet rather than the whole system. Filter
+  // the charts to the stations those vehicles actually serve.
+  const spotTrucks =
+    !selected && ctx.highlightType && ctx.highlightedTrucks && ctx.highlightedTrucks.size
+      ? ctx.highlightedTrucks
+      : null;
+  const spotType = spotTrucks ? (ctx.fleetTypes || []).find((t) => t.id === ctx.highlightType) : null;
+  const spotStations = spotType
+    ? ctx.stations.filter((s) => spotTrucks.has(ctx.stationToTruck.get(s.idx)))
+    : null;
+
   const header = station
     ? stationHeader(station, truckIdx, ctx)
     : truckIdx != null
     ? truckHeader(truckIdx, route, ctx)
+    : spotType
+    ? spotlightHeader(spotType, spotTrucks, ctx)
     : systemHeader(ctx);
 
   // Three distinct states, never stacked, never scrolling:
@@ -76,13 +93,22 @@ export function renderPanel(sel, ctx) {
     if (route) blocks.push(block(`Load profile · ${vehicleLabel(truckIdx)}`, 'a-load', 'a-load-chart'));
   } else if (truckIdx != null) {
     if (route) blocks.push(block(`Load profile · ${vehicleLabel(truckIdx)}`, 'a-load', 'a-load-chart'));
-    blocks.push(block('Most imbalanced', 'a-rank', 'a-rank'));
+    blocks.push(block('Most imbalanced · this route', 'a-rank', 'a-rank'));
+  } else if (spotType) {
+    if (spotStations.length) {
+      blocks.push(block(`Net flow by hour · ${spotType.name.toLowerCase()}s`, 'a-hourly', 'a-chart'));
+      blocks.push(block('Most imbalanced · this fleet', 'a-rank', 'a-rank'));
+    } else {
+      blocks.push(`<p class="a-hint">Every ${spotType.name.toLowerCase()} is parked at the depot this plan.</p>`);
+    }
   } else {
     blocks.push(block('Net flow by hour · system', 'a-hourly', 'a-chart'));
     blocks.push(block('Most imbalanced', 'a-rank', 'a-rank'));
   }
 
-  const hint = !selected
+  const hint = spotType
+    ? '<p class="a-hint">Charts cover only stations this fleet serves · ✕, the type name, or empty map space exits.</p>'
+    : !selected
     ? '<p class="a-hint">Click a station, a vehicle, or a ranking bar to focus.</p>'
     : route
     ? '<p class="a-hint">Drag across the load chart to scrub and read each stop’s load · ✕ or click the map to deselect.</p>'
@@ -90,12 +116,16 @@ export function renderPanel(sel, ctx) {
 
   root.innerHTML = header + blocks.join('') + hint;
 
-  // Deselect affordance (selected state only) — the obvious way back to the ranking.
+  // Deselect affordance — the obvious way back to the system overview. In the
+  // spotlight it exits the spotlight (there's no spine selection to clear).
   const deselect = root.querySelector('.a-deselect');
-  if (deselect) deselect.addEventListener('click', () => ctx.onClearSelection && ctx.onClearSelection());
+  if (deselect)
+    deselect.addEventListener('click', () =>
+      spotType ? ctx.onClearHighlight && ctx.onClearHighlight() : ctx.onClearSelection && ctx.onClearSelection()
+    );
 
   const hourlyEl = $('a-hourly');
-  if (hourlyEl) hourlyEl.innerHTML = hourlyChartSVG(station ? station.hourly : systemHourly(ctx.stations));
+  if (hourlyEl) hourlyEl.innerHTML = hourlyChartSVG(station ? station.hourly : systemHourly(spotStations || ctx.stations));
 
   // Load profile (Stage 2). Keep loadCtx for the animation sync + scrubber.
   loadCtx = null;
@@ -110,7 +140,11 @@ export function renderPanel(sel, ctx) {
 
   const rankEl = $('a-rank');
   if (rankEl) {
-    rankEl.innerHTML = rankingHTML(ctx.stations, { selectedIdx: sel.stationIdx });
+    // Scope the ranking to the current subject: the focused vehicle's route,
+    // the spotlit fleet's stations, or (default) the whole system.
+    const truckStations =
+      !station && truckIdx != null ? ctx.stations.filter((s) => ctx.stationToTruck.get(s.idx) === truckIdx) : null;
+    rankEl.innerHTML = rankingHTML(truckStations || spotStations || ctx.stations, { selectedIdx: sel.stationIdx });
     wireRanking(rankEl, ctx);
   }
 }
@@ -229,6 +263,23 @@ function truckHeader(truckIdx, route, ctx) {
         type ? ` · ${type.name}` : ''
       }</h2>
       <div class="a-sub">${stops} stops · ${dist}${hours} · peak load ${maxLoad} / ${ctx.capacityFor(truckIdx)}</div>
+    </header>`;
+}
+
+// Fleet-spotlight header: the whole type as one subject. Aggregates come from
+// the solved routes (never recomputed); idle vehicles are counted honestly.
+function spotlightHeader(type, trucks, ctx) {
+  const routes = [...trucks].map((t) => ctx.routesByTruck && ctx.routesByTruck.get(t)).filter((r) => r && r.stationIdxs.length);
+  const dist = routes.reduce((s, r) => s + r.distance, 0);
+  const stops = routes.reduce((s, r) => s + r.stationIdxs.length, 0);
+  const bikes = routes.reduce((s, r) => s + (r.bikesMoved || 0), 0);
+  const idle = trucks.size - routes.length;
+  return `
+    <header class="a-head">
+      ${deselectBtn}
+      <div class="a-eyebrow">Fleet spotlight</div>
+      <h2 class="a-title"><i class="vdot ${type.id}"></i>${type.name}s · ${trucks.size}</h2>
+      <div class="a-sub">${routes.length} on the road${idle > 0 ? ` · ${idle} idle` : ''} · ${formatDistance(dist)} · ${stops} stops · ${bikes.toLocaleString()} bikes</div>
     </header>`;
 }
 

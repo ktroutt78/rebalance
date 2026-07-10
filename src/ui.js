@@ -186,7 +186,7 @@ export function renderMetrics(metrics, fleet = []) {
       const type = fleet[t.truckIndex];
       if (t.stops === 0) {
         return `
-        <div class="truck-row idle" title="Vehicle ${t.truckIndex + 1}${type ? ` — ${type.name}` : ''} has no route this plan">
+        <div class="truck-row idle" data-truck="${t.truckIndex}" title="Vehicle ${t.truckIndex + 1}${type ? ` — ${type.name}` : ''} has no route this plan">
           <span class="swatch" style="background:${rgb(color)}"></span>
           <span class="t-name">${t.truckIndex + 1}</span>
           <span class="t-type">${type ? type.short : ''}</span>
@@ -231,13 +231,21 @@ export function bindTruckClicks(handler) {
   const el = $('truck-breakdown');
   const fire = (e) => {
     const row = e.target.closest('.truck-row');
-    if (!row || row.dataset.truck === undefined) return; // idle rows aren't focusable
+    if (!row || row.classList.contains('idle')) return; // idle rows aren't focusable
     if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
     e.preventDefault();
     handler(Number(row.dataset.truck));
   };
   el.addEventListener('click', fire);
   el.addEventListener('keydown', fire);
+}
+
+// Reflect the type spotlight onto the per-vehicle legend rows: every vehicle
+// of the spotlit type (idle included) gets the accent treatment. Null clears.
+export function setTruckSpotlight(truckSet) {
+  document.querySelectorAll('#truck-breakdown .truck-row').forEach((row) => {
+    row.classList.toggle('spotlit', !!truckSet && truckSet.has(Number(row.dataset.truck)));
+  });
 }
 
 // Reflect the shared selection back onto the legend rows.

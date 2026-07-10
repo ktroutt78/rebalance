@@ -394,6 +394,13 @@ input[type='range'] {
   box-shadow: inset 2px 0 0 currentColor;
 }
 
+/* Type spotlight: the spotlit type's vehicles read as one group, in the same
+   teal the highlighted type name wears (idle rows keep their ghosting). */
+.truck-row.spotlit {
+  background: rgba(76, 201, 176, 0.12);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .truck-row .swatch {
   width: 10px;
   height: 10px;
