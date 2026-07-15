@@ -92,6 +92,51 @@ body {
   z-index: 10;
 }
 
+/* Themed scrollbar for the panels + modal cards that can overflow on short
+   viewports. The OS default (opaque light track) clashes with the dark glass
+   surfaces, so we render a thin, translucent thumb that reads as part of the
+   panel. WebKit (Chrome/Safari) + Firefox both covered. */
+#panel,
+#analytics,
+.intro-card,
+.about-card {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+#panel::-webkit-scrollbar,
+#analytics::-webkit-scrollbar,
+.intro-card::-webkit-scrollbar,
+.about-card::-webkit-scrollbar {
+  width: 10px;
+}
+
+#panel::-webkit-scrollbar-track,
+#analytics::-webkit-scrollbar-track,
+.intro-card::-webkit-scrollbar-track,
+.about-card::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#panel::-webkit-scrollbar-thumb,
+#analytics::-webkit-scrollbar-thumb,
+.intro-card::-webkit-scrollbar-thumb,
+.about-card::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  /* Inset the thumb from the panel edge so it floats rather than hugs. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+#panel::-webkit-scrollbar-thumb:hover,
+#analytics::-webkit-scrollbar-thumb:hover,
+.intro-card::-webkit-scrollbar-thumb:hover,
+.about-card::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+  background-clip: padding-box;
+}
+
 #panel header h1 {
   margin: 0;
   font-size: 22px;
