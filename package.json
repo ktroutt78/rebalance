@@ -18,6 +18,7 @@
   },
   "devDependencies": {
     "@duckdb/node-api": "1.5.4-r.1",
+    "playwright": "^1.61.1",
     "vite": "^5.4.10"
   }
 }
